@@ -182,21 +182,25 @@
   let currentView = 'chat'; // chat | pinned | fav
 
   function visibleMessages() {
+    // 统一按时间正序：最旧在上，最新在最底部
+    const byTime = (a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
     if (currentView === 'pinned') {
-      return state.messages.filter(m => state.pins.indexOf(m.id) >= 0)
-        .sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+      return state.messages.filter(m => state.pins.indexOf(m.id) >= 0).sort(byTime);
     }
     if (currentView === 'fav') {
-      return state.messages.filter(m => favActive(m.id))
-        .sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+      return state.messages.filter(m => favActive(m.id)).sort(byTime);
     }
-    return state.messages.filter(m => m.sessionId === state.currentSessionId)
-      .sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+    if (searchKw) {
+      // 搜索时跨全部会话查找
+      return state.messages.slice().sort(byTime);
+    }
+    return state.messages.filter(m => m.sessionId === state.currentSessionId).sort(byTime);
   }
 
   function currentTitle() {
     if (currentView === 'pinned') return '置顶的消息';
     if (currentView === 'fav') return '收藏的消息';
+    if (searchKw) return '搜索结果';
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     return s ? s.name : '提示词速记';
   }
@@ -250,6 +254,7 @@
     if (i >= 0) { state.pins.splice(i, 1); toast('已取消置顶'); }
     else { state.pins.unshift(id); toast('已置顶'); }
     save(); render();
+    if (lightboxId) refreshLightbox();
   }
 
   function toggleFav(id, days) {
@@ -329,11 +334,13 @@
   }
 
   function setActLabel(btn, text) {
-    const span = btn.querySelector('span');
-    if (!span) return;
-    span.parentNode.textContent = '';
-    span.parentNode.appendChild(span);
-    span.parentNode.appendChild(document.createTextNode(text));
+    let span = btn.querySelector('span');
+    const icon = span ? span.textContent : (btn.dataset.icon || '');
+    btn.dataset.icon = icon;
+    btn.textContent = '';
+    if (!span) { span = document.createElement('span'); span.textContent = icon; }
+    btn.appendChild(span);
+    btn.appendChild(document.createTextNode(text));
   }
 
   function closeLightbox() {
@@ -637,6 +644,8 @@
   });
 
   /* ---------------- 渲染总入口 ---------------- */
+  let lastRenderKey = null;
+
   function render() {
     let msgs = visibleMessages();
     if (searchKw) {
@@ -646,6 +655,13 @@
     }
     renderSidebar();
     renderChatFiltered(msgs);
+
+    // 切换会话 / 切换视图 / 搜索时，自动滚动到最底部，让最新消息第一眼可见
+    const key = state.currentSessionId + '|' + currentView + '|' + searchKw;
+    if (key !== lastRenderKey) {
+      lastRenderKey = key;
+      scrollBottom();
+    }
   }
 
   function renderChatFiltered(msgs) {
@@ -670,7 +686,7 @@
 
     const pinBar = $('#pinBar');
     const pinned = state.messages.filter(m => state.pins.indexOf(m.id) >= 0)
-      .sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
     if (pinned.length && currentView === 'chat') {
       pinBar.hidden = false;
       pinBar.innerHTML = '<span>置顶</span>' + pinned.map(m =>
