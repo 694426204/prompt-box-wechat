@@ -1,0 +1,8 @@
+demo/
+.github/
+.git/
+scripts/
+node_modules/
+package-lock.json
+.vercel
+wrangler.jsonc
