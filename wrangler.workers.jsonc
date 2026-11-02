@@ -1,7 +1,6 @@
 {
-  // Cloudflare Workers 配置（与 wrangler.jsonc 的 Pages 配置分开，避免平台互斥警告）
+  // Cloudflare Workers 部署配置（纯静态资源，无 Worker 脚本）
   // 部署：npm run build && npx wrangler deploy -c wrangler.workers.jsonc
-  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "prompt-box",
   "compatibility_date": "2026-11-03",
   "workers_dev": true,

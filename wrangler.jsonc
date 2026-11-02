@@ -1,8 +1,0 @@
-{
-  // Cloudflare Pages 配置
-  // 部署：npm run build && npx wrangler pages deploy dist --project-name=prompt-box
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "prompt-box",
-  "compatibility_date": "2026-11-03",
-  "pages_build_output_dir": "dist"
-}
