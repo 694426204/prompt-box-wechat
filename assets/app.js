@@ -231,7 +231,11 @@
       '</div>';
 
     const bubble = $('.bubble', row);
-    bubble.addEventListener('click', () => openLightbox(m.id));
+    bubble.addEventListener('click', () => handleBubbleClick(m.id));
+    bubble.addEventListener('dblclick', () => {
+      if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+      openLightbox(m.id, true);
+    });
     bubble.addEventListener('contextmenu', e => {
       e.preventDefault();
       openCtxMenu(e.clientX, e.clientY, m.id);
@@ -282,10 +286,18 @@
   /* ---------------- 放大层 ---------------- */
   let lightboxId = null;
 
-  function openLightbox(id) {
+  // 单击气泡 → 居中卡片；双击气泡 → 半全屏放大
+  let clickTimer = null;
+  function handleBubbleClick(id) {
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { clickTimer = null; openLightbox(id, false); }, 220);
+  }
+
+  function openLightbox(id, wide) {
     const m = state.messages.find(x => x.id === id);
     if (!m) return;
     lightboxId = id;
+    $('#lightbox').classList.toggle('wide', !!wide);
     $('#lightbox').hidden = false;
     $('#lbEdit').hidden = true;
     refreshLightbox();
@@ -345,6 +357,7 @@
 
   function closeLightbox() {
     $('#lightbox').hidden = true;
+    $('#lightbox').classList.remove('wide');
     lightboxId = null;
     $('#lbEdit').hidden = true;
   }
@@ -707,6 +720,94 @@
     favBadge.textContent = fc;
     favBadge.dataset.zero = fc ? '0' : '1';
   }
+
+  /* ---------------- 主题系统 ---------------- */
+  const THEME_KEY = 'prompt-box-theme-v1';
+
+  const THEMES = [
+    { id: 'day',   name: '白天', side: '#2e2e2e', bg: '#f5f5f5', bubble: '#95ec69', accent: '#07c160' },
+    { id: 'dark',  name: '暗黑', side: '#121214', bg: '#1b1b1f', bubble: '#2f6b3a', accent: '#07c160' },
+    { id: 'eye',   name: '护眼', side: '#3c4438', bg: '#e8eee0', bubble: '#cbe4a8', accent: '#5a8f4a' },
+    { id: 'night', name: '夜间', side: '#010409', bg: '#0d1117', bubble: '#1f6f43', accent: '#2ea043' },
+    { id: 'wood',  name: '原木', side: '#5b4632', bg: '#f2e8db', bubble: '#e3c795', accent: '#a9713f' }
+  ];
+
+  let theme = { preset: 'day', bg: '', accent: '' };
+
+  function loadTheme() {
+    try {
+      const raw = localStorage.getItem(THEME_KEY);
+      if (!raw) return;
+      const t = JSON.parse(raw);
+      if (t && t.preset) theme = { preset: t.preset, bg: t.bg || '', accent: t.accent || '' };
+    } catch (e) { /* 忽略损坏的主题配置 */ }
+  }
+
+  function saveTheme() {
+    try { localStorage.setItem(THEME_KEY, JSON.stringify(theme)); } catch (e) { /* 存储空间不足时忽略 */ }
+  }
+
+  function applyTheme() {
+    const root = document.documentElement;
+    root.setAttribute('data-theme', theme.preset);
+    // 自定义背景色覆盖
+    if (theme.bg) {
+      root.style.setProperty('--chat-bg', theme.bg);
+      root.style.setProperty('--lb-body-bg', theme.bg);
+    } else {
+      root.style.removeProperty('--chat-bg');
+      root.style.removeProperty('--lb-body-bg');
+    }
+    if (theme.accent) root.style.setProperty('--accent', theme.accent);
+    else root.style.removeProperty('--accent');
+
+    const grid = $('#themeGrid');
+    if (grid) {
+      grid.innerHTML = '';
+      THEMES.forEach(t => {
+        const item = document.createElement('button');
+        item.className = 'tp-item' + (t.id === theme.preset && !theme.bg ? ' on' : '');
+        item.innerHTML =
+          '<span class="tp-swatch">' +
+            '<i style="background:' + t.side + '"></i>' +
+            '<i style="background:' + t.bg + '"></i>' +
+            '<i style="background:' + t.bubble + '"></i>' +
+          '</span>' +
+          '<span class="tp-name">' + t.name + '</span>';
+        item.addEventListener('click', () => {
+          theme.preset = t.id;
+          theme.bg = '';
+          theme.accent = '';
+          saveTheme();
+          applyTheme();
+          toast('已切换到「' + t.name + '」主题');
+        });
+        grid.appendChild(item);
+      });
+    }
+    const bgInput = $('#customBg'), acInput = $('#customAccent');
+    if (bgInput) bgInput.value = theme.bg || '#f5f5f5';
+    if (acInput) acInput.value = theme.accent || '#07c160';
+  }
+
+  $('#btnTheme').addEventListener('click', e => {
+    e.stopPropagation();
+    const p = $('#themePanel');
+    p.hidden = !p.hidden;
+  });
+  $('#themePanel').addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => { $('#themePanel').hidden = true; });
+  $('#customBg').addEventListener('input', e => {
+    theme.bg = e.target.value;
+    saveTheme(); applyTheme();
+  });
+  $('#customAccent').addEventListener('input', e => {
+    theme.accent = e.target.value;
+    saveTheme(); applyTheme();
+  });
+
+  loadTheme();
+  applyTheme();
 
   /* ---------------- 启动 ---------------- */
   render();

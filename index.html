@@ -54,10 +54,27 @@
         <div class="t-sub" id="chatSub">0 条消息</div>
       </div>
       <div class="head-tools">
+        <button class="icon-btn" id="btnTheme" title="主题外观">
+          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="8"/><path d="M12 4v16"/><path d="M12 4a8 8 0 010 16" fill="currentColor" stroke="none"/></svg>
+        </button>
         <button class="icon-btn" id="btnSearch2" title="搜索"><svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></button>
         <button class="icon-btn" id="btnExport" title="导出备份"><svg viewBox="0 0 24 24" class="ico"><path d="M12 3v11m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg></button>
         <button class="icon-btn" id="btnImport" title="导入备份"><svg viewBox="0 0 24 24" class="ico"><path d="M12 14V3m0 0L8 7m4-4l4 4M4 17v3h16v-3"/></svg></button>
         <input type="file" id="fileImport" accept="application/json,.json" hidden>
+      </div>
+
+      <!-- 主题选择面板 -->
+      <div class="theme-panel" id="themePanel" hidden>
+        <div class="tp-title">外观主题</div>
+        <div class="tp-grid" id="themeGrid"></div>
+        <div class="tp-custom">
+          <label for="customBg">自定义背景色</label>
+          <input type="color" id="customBg" value="#f5f5f5">
+        </div>
+        <div class="tp-custom">
+          <label for="customAccent">自定义主色</label>
+          <input type="color" id="customAccent" value="#07c160">
+        </div>
       </div>
     </header>
 
