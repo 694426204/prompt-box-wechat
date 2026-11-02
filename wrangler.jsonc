@@ -1,0 +1,8 @@
+{
+  // Cloudflare Pages 静态站点配置
+  // 部署：npx wrangler pages deploy . --project-name=prompt-box
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prompt-box",
+  "pages_build_output_dir": ".",
+  "compatibility_date": "2026-11-03"
+}
