@@ -1,0 +1,13 @@
+{
+  // Cloudflare Workers 配置（与 wrangler.jsonc 的 Pages 配置分开，避免平台互斥警告）
+  // 部署：npm run build && npx wrangler deploy -c wrangler.workers.jsonc
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prompt-box",
+  "compatibility_date": "2026-11-03",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    // 未知路径回落到 dist/404.html
+    "not_found_handling": "404-page"
+  }
+}
