@@ -149,7 +149,7 @@
         '<div class="c-main">' +
           '<div class="c-row1"><span class="c-name">' + esc(s.name) + '</span>' +
             '<span class="c-time">' + (last ? fmtTime(last.createdAt) : '') + '</span></div>' +
-          '<div class="c-row2"><span class="c-prev">' + esc(last ? (last.title || last.content).slice(0, 40) : '暂无消息') + '</span>' +
+          '<div class="c-row2"><span class="c-prev">' + esc(last ? summaryText(last).slice(0, 40) : '暂无消息') + '</span>' +
             '<span class="c-flags">' +
               (pinCount ? '<i class="pin" title="置顶">📌' + pinCount + '</i>' : '') +
               (favCount ? '<i class="fav" title="收藏">⭐' + favCount + '</i>' : '') +
@@ -167,6 +167,14 @@
 
     const total = state.messages.length;
     $('#statLine').textContent = total + ' 条消息 · ' + state.sessions.length + ' 个会话';
+  }
+
+  // 摘要文本：Markdown 消息去掉标记后取正文
+  function summaryText(m) {
+    if (!m) return '';
+    if (m.title) return m.title;
+    const body = MD.isMdMsg(m) ? MD.strip(m.content) : m.content;
+    return body.replace(/\s+/g, ' ').trim() || '暂无消息';
   }
 
   function lastMsg(sid) {
@@ -211,12 +219,21 @@
     const pinned = state.pins.indexOf(m.id) >= 0;
     const fl = favLabel(m.id);
 
+    // Markdown 消息若首个标题与 title 相同，气泡内不再重复显示 title
+    let titleHtml = '';
+    if (m.title) {
+      const h = MD.isMdMsg(m) ? MD.firstHeading(m.content) : null;
+      if (h === null || h !== m.title.trim()) {
+        titleHtml = '<span class="b-title">' + esc(m.title) + '</span>';
+      }
+    }
+
     row.innerHTML =
       '<div class="avatar">' + (m.side === 'me' ? '我' : '✦') + '</div>' +
       '<div class="msg-col">' +
         '<div class="bubble" data-id="' + m.id + '">' +
-          (m.title ? '<span class="b-title">' + esc(m.title) + '</span>' : '') +
-          esc(m.content) +
+          titleHtml +
+          (MD.isMdMsg(m) ? '<div class="md">' + MD.render(m.content) + '</div>' : esc(m.content)) +
           '<div class="b-flags">' +
             (pinned ? '<span>📌 已置顶</span>' : '') +
             (fl ? '<span class="' + fl.cls + '">' + esc(fl.text) + '</span>' : '') +
@@ -310,13 +327,22 @@
     const f = favActive(m.id);
     const s = state.sessions.find(x => x.id === m.sessionId);
 
-    $('#lbTitle').textContent = m.title || '消息详情';
+    // Markdown 消息首个标题与 title 相同时，灯箱标题栏不重复显示
+    const firstH = MD.isMdMsg(m) ? MD.firstHeading(m.content) : null;
+    $('#lbTitle').textContent = (firstH !== null && firstH === (m.title || '').trim()) ? '' : (m.title || '消息详情');
     $('#lbMeta').textContent =
       (s ? s.name : '未知会话') + ' · ' + fmtTime(m.createdAt) +
       (m.side === 'me' ? ' · 我发送' : ' · 助手消息') +
       (pinned ? ' · 已置顶' : '') +
       (f ? ' · ' + (f.until ? '收藏中（' + Math.ceil((f.until - Date.now()) / DAY) + ' 天内到期）' : '已收藏') : '');
-    $('#lbBody').textContent = m.content;
+    const lbBody = $('#lbBody');
+    if (MD.isMdMsg(m)) {
+      lbBody.classList.add('md');
+      lbBody.innerHTML = MD.render(m.content);
+    } else {
+      lbBody.classList.remove('md');
+      lbBody.textContent = m.content;
+    }
 
     const acts = $$('#lightbox .act');
     acts.forEach(a => a.classList.remove('on'));
@@ -444,6 +470,9 @@
     if (!m) return;
     m.title = $('#lbEditTitle').value.trim();
     m.content = $('#lbEditBody').value;
+    // 重新判定格式：原本是 Markdown 的，即使删改后特征变少也保留 md 档位
+    if (m.fmt === 'md') m.fmt = MD.detectLoose(m.content);
+    else m.fmt = MD.detect(m.content);
     save(); $('#lbEdit').hidden = true; render(); refreshLightbox();
     toast('已保存');
   });
@@ -483,17 +512,21 @@
       sid = s ? s.id : null;
     }
     if (!sid) { toast('请先新建一个会话'); return; }
+    const fmt = MD.detect(raw);
     const lines = raw.split('\n');
+    const head = fmt === 'md' ? MD.strip(lines[0]).trim() : lines[0];
     state.messages.push({
       id: uid('m'),
       sessionId: sid,
       side: 'me',
-      title: lines[0].length > 40 ? lines[0].slice(0, 40) + '…' : lines[0],
+      title: head.length > 40 ? head.slice(0, 40) + '…' : head,
       content: raw,
+      fmt: fmt,
       createdAt: new Date().toISOString()
     });
     ta.value = '';
     ta.style.height = 'auto';
+    resetPreview();
     save(); currentView = 'chat'; render();
     scrollBottom();
     toast('已保存到「' + (state.sessions.find(s => s.id === sid) || {}).name + '」');
@@ -505,7 +538,70 @@
   $('#composerInput').addEventListener('input', e => {
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px';
+    updatePreview();
   });
+
+  /* ---------------- 实时格式识别 + 预览条 ---------------- */
+  let previewOpen = false;
+
+  function updatePreview(forceFmt) {
+    const ta = $('#composerInput');
+    const text = ta.value;
+    const box = $('#compPreview');
+    if (!text.trim()) { resetPreview(); return; }
+
+    // 整段判定；粘贴时若片段强判为 md 则整体判 md（只升不降）
+    const fmt = forceFmt || MD.detect(text);
+
+    const badge = $('#cpBadge');
+    badge.textContent = fmt === 'md' ? 'Markdown' : 'TXT';
+    badge.classList.toggle('md', fmt === 'md');
+    $('#cpHint').textContent = fmt === 'md' ? '已识别为 Markdown，将按 Markdown 排版' : '纯文本，按原样显示';
+
+    box.hidden = false;
+    const body = $('#cpBody');
+    if (fmt === 'md') {
+      body.classList.add('md');
+      body.innerHTML = MD.render(text);
+    } else {
+      body.classList.remove('md');
+      body.textContent = text;
+    }
+    body.hidden = !previewOpen;
+    $('#cpToggle').textContent = previewOpen ? '收起预览' : '展开预览';
+  }
+
+  function resetPreview() {
+    const box = $('#compPreview');
+    if (box) box.hidden = true;
+    const body = $('#cpBody');
+    if (body) { body.innerHTML = ''; body.textContent = ''; body.hidden = true; }
+    const badge = $('#cpBadge');
+    if (badge) { badge.textContent = 'TXT'; badge.classList.remove('md'); }
+  }
+
+  // 粘贴时对刚粘贴的片段单独判定，片段判为 md 则整体判 md
+  $('#composerInput').addEventListener('paste', e => {
+    const clip = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (!clip) return;
+    setTimeout(() => {
+      const ta = $('#composerInput');
+      if (MD.detect(clip) === 'md') {
+        updatePreview('md');
+      } else {
+        updatePreview();
+      }
+    }, 0);
+  });
+
+  function togglePreview() {
+    previewOpen = !previewOpen;
+    const body = $('#cpBody');
+    if (body) body.hidden = !previewOpen;
+    $('#cpToggle').textContent = previewOpen ? '收起预览' : '展开预览';
+  }
+  $('#cpBadge').addEventListener('click', togglePreview);
+  $('#cpToggle').addEventListener('click', togglePreview);
 
   function scrollBottom() {
     const s = $('#msgScroll');
@@ -703,7 +799,7 @@
     if (pinned.length && currentView === 'chat') {
       pinBar.hidden = false;
       pinBar.innerHTML = '<span>置顶</span>' + pinned.map(m =>
-        '<span class="pb-item" data-jump="' + m.id + '">📌 ' + esc(m.title || m.content.slice(0, 18)) + '</span>'
+        '<span class="pb-item" data-jump="' + m.id + '">📌 ' + esc(summaryText(m).slice(0, 18)) + '</span>'
       ).join('');
       $$('#pinBar .pb-item').forEach(el => {
         el.addEventListener('click', () => openLightbox(el.dataset.jump));

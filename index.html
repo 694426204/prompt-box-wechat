@@ -96,6 +96,14 @@
         <button class="chip danger" id="btnDeleteSession" title="删除当前会话">🗑 删除会话</button>
         <span class="comp-hint" id="compHint"></span>
       </div>
+      <div class="comp-preview" id="compPreview" hidden>
+        <div class="cp-bar">
+          <button type="button" class="cp-badge" id="cpBadge" title="点击展开 / 收起预览">TXT</button>
+          <span class="cp-note" id="cpHint">纯文本</span>
+          <button type="button" class="cp-toggle" id="cpToggle">展开预览</button>
+        </div>
+        <div class="cp-body" id="cpBody" hidden></div>
+      </div>
       <div class="comp-body">
         <textarea id="composerInput" rows="2" placeholder="输入提示词，Enter 发送 · Shift+Enter 换行"></textarea>
         <button class="send-btn" id="btnSend" title="发送">发送</button>
@@ -145,6 +153,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="data/seed-prompts.js"></script>
+<script src="assets/markdown.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>

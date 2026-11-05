@@ -86,6 +86,12 @@
   --empty-text:#999999;
   --empty-text-sub:#b5b5b5;
   --empty-ico:#b5b5b5;
+
+  /* Markdown 排版 */
+  --md-code-bg:rgba(0,0,0,.06);
+  --md-code-bg-me:rgba(0,0,0,.08);
+  --md-code-text:#333333;
+  --md-quote-line:#c8c8c8;
 }
 
 /* ---------- 暗黑 ---------- */
@@ -164,6 +170,11 @@
   --empty-text:#8b8b93;
   --empty-text-sub:#5f5f68;
   --empty-ico:#5f5f68;
+
+  --md-code-bg:rgba(255,255,255,.08);
+  --md-code-bg-me:rgba(255,255,255,.13);
+  --md-code-text:#e6e6e6;
+  --md-quote-line:#5a5a63;
 }
 
 /* ---------- 护眼（暖米黄低蓝光） ---------- */
@@ -240,6 +251,11 @@
   --empty-text:#8b9a83;
   --empty-text-sub:#a4b39b;
   --empty-ico:#a4b39b;
+
+  --md-code-bg:rgba(0,0,0,.06);
+  --md-code-bg-me:rgba(0,0,0,.08);
+  --md-code-text:#2f3a2b;
+  --md-quote-line:#b6c4ac;
 }
 
 /* ---------- 夜间（深色低亮，不刺眼） ---------- */
@@ -318,6 +334,11 @@
   --empty-text:#6e7681;
   --empty-text-sub:#4d5560;
   --empty-ico:#4d5560;
+
+  --md-code-bg:rgba(255,255,255,.08);
+  --md-code-bg-me:rgba(255,255,255,.14);
+  --md-code-text:#c9d1d9;
+  --md-quote-line:#414b56;
 }
 
 /* ---------- 原木 ---------- */
@@ -396,6 +417,11 @@
   --empty-text:#a8937b;
   --empty-text-sub:#bfae97;
   --empty-ico:#bfae97;
+
+  --md-code-bg:rgba(90,65,40,.09);
+  --md-code-bg-me:rgba(90,65,40,.12);
+  --md-code-text:#4a3f31;
+  --md-quote-line:#cdb99c;
 }
 
 /* =========================================================
@@ -693,6 +719,69 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
 [hidden]{display:none !important;}
 
 .only-mobile{display:none;}
+
+/* =========================================================
+   Markdown 排版（气泡内 / 灯箱内 / 预览条内共用 .md 作用域）
+   ========================================================= */
+.md{white-space:normal;word-break:break-word;}
+.md>*:first-child{margin-top:0;}
+.md>*:last-child{margin-bottom:0;}
+.md p{margin:6px 0;}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{
+  font-weight:600;line-height:1.4;margin:10px 0 6px;
+}
+.md h1{font-size:1.32em;}
+.md h2{font-size:1.2em;}
+.md h3{font-size:1.1em;}
+.md h4,.md h5,.md h6{font-size:1em;}
+.md h1,.md h2{border-bottom:1px solid var(--line);padding-bottom:4px;}
+.md ul,.md ol{margin:6px 0;padding-left:22px;}
+.md li{margin:3px 0;}
+.md li>p{margin:2px 0;}
+.md ul ul,.md ol ul,.md ul ol,.md ol ol{margin:2px 0;}
+.md blockquote{
+  margin:8px 0;padding:2px 0 2px 10px;border-left:3px solid var(--md-quote-line);
+  color:var(--text-sub);
+}
+.md hr{border:none;border-top:1px solid var(--line);margin:10px 0;}
+.md code{
+  font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  background:var(--md-code-bg);color:var(--md-code-text);
+  padding:1px 5px;border-radius:3px;font-size:.9em;
+}
+.md pre{
+  background:var(--md-code-bg);border-radius:5px;padding:9px 11px;margin:8px 0;
+  overflow-x:auto;line-height:1.55;
+}
+.md pre code{background:none;padding:0;color:var(--md-code-text);font-size:.88em;}
+.md a{color:var(--accent);text-decoration:underline;word-break:break-all;}
+.md del{opacity:.65;}
+.md strong{font-weight:600;}
+
+/* 自己发送的气泡（绿底）内代码块需要更深一点的底色 */
+.msg-row.mine .bubble .md code,
+.msg-row.mine .bubble .md pre{background:var(--md-code-bg-me);}
+
+/* ---------- 输入区实时预览条 ---------- */
+.comp-preview{border-top:1px solid var(--line-soft);background:var(--panel);}
+.cp-bar{display:flex;align-items:center;gap:8px;padding:6px 16px;}
+.cp-badge{
+  font-size:11px;font-weight:600;letter-spacing:.4px;padding:2px 9px;border-radius:10px;
+  background:var(--chip-bg);color:var(--chip-text);border:1px solid transparent;transition:.15s;
+}
+.cp-badge.md{background:var(--accent);color:var(--accent-text);}
+.cp-badge:hover{filter:brightness(.96);}
+.cp-note{font-size:12px;color:var(--text-dim);}
+.cp-toggle{
+  margin-left:auto;font-size:12px;color:var(--text-sub);background:none;
+  border:1px solid var(--line);border-radius:4px;padding:2px 9px;transition:.15s;
+}
+.cp-toggle:hover{background:var(--chip-bg);color:var(--chip-text-hover);}
+.cp-body{
+  padding:2px 16px 12px;font-size:14px;line-height:1.7;color:var(--text);
+  max-height:230px;overflow-y:auto;
+}
+.cp-body.md{white-space:normal;}
 
 /* ---------- 移动端 ---------- */
 @media (max-width:820px){
