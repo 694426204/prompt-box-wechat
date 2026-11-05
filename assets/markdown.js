@@ -25,8 +25,10 @@
     if (/^```/m.test(s)) { total += 4; strong = true; }
     // ATX 标题
     if (/^#{1,6}\s+\S/m.test(s)) { total += 3; strong = true; }
-    // 表格行
-    if (/^\s*\|.+\|\s*$/m.test(s)) { total += 3; strong = true; }
+    // 表格：必须存在「表头行 + 分隔行」的结构才算表格
+    if (hasTable(s)) { total += 3; strong = true; }
+    // 单行竖线内容只是「像表格」的弱信号，不足以单独判 md
+    else if (/^\s*\|.+\|\s*$/m.test(s)) total += 1;
     // 分割线
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/m.test(s)) total += 2;
     // 引用
@@ -106,6 +108,103 @@
     return s;
   }
 
+  /* ---------------- 表格原语（GFM 管道表格） ---------------- */
+
+  // 按「未转义且不在行内代码中」的竖线切分单元格
+  function splitCells(line) {
+    const s = String(line == null ? '' : line);
+    const cells = [];
+    let cur = '';
+    let inCode = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      // 转义竖线：还原为字面量
+      if (ch === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
+      if (ch === '`') { inCode = !inCode; cur += ch; continue; }
+      if (ch === '|' && !inCode) { cells.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur);
+    // 去掉首尾空单元格（对应行首 / 行尾的竖线）
+    if (cells.length > 1 && cells[0].trim() === '') cells.shift();
+    if (cells.length > 1 && cells[cells.length - 1].trim() === '') cells.pop();
+    return cells.map(c => c.trim());
+  }
+
+  // 判定分隔行，返回各列对齐方式；不是分隔行则返回 null
+  function isDelimRow(line) {
+    const cells = splitCells(line);
+    if (!cells.length) return null;
+    const aligns = [];
+    for (const c of cells) {
+      const m = /^(:?)-+(:?)$/.exec(c);
+      if (!m) return null;
+      const left = m[1] === ':';
+      const right = m[2] === ':';
+      aligns.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+    }
+    return { aligns: aligns };
+  }
+
+  // 行内是否存在未转义的竖线（数据行必须含竖线，否则视为段落、表格结束）
+  function hasPipe(line) {
+    const s = String(line == null ? '' : line);
+    let inCode = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === '\\') { i++; continue; }
+      if (ch === '`') { inCode = !inCode; continue; }
+      if (ch === '|' && !inCode) return true;
+    }
+    return false;
+  }
+
+  // 判定 lines[i] 处是否为表格起点，返回表头 / 对齐 / 数据行
+  function tableAt(lines, i) {
+    if (i + 1 >= lines.length) return null;
+    const headLine = lines[i];
+    if (!hasPipe(headLine)) return null;
+
+    const header = splitCells(headLine);
+    if (header.length < 2) return null; // 单列不成表
+
+    const d = isDelimRow(lines[i + 1]);
+    if (!d || d.aligns.length !== header.length) return null;
+
+    const rows = [];
+    let k = i + 2;
+    while (k < lines.length) {
+      const line = lines[k];
+      if (!line.trim()) break;          // 空行结束表格
+      if (/^\s*```/.test(line)) break;  // 代码围栏结束表格
+      if (/^#{1,6}\s+/.test(line)) break; // 标题结束表格
+      if (!hasPipe(line)) break;        // 无竖线的行是段落，表格结束
+      const cells = splitCells(line);
+      const row = cells.slice(0, header.length);
+      while (row.length < header.length) row.push(''); // 缺列补空
+      rows.push(row);
+      k++;
+    }
+    return { header: header, aligns: d.aligns, rows: rows };
+  }
+
+  // 整段文本中是否存在表格（用于判档；忽略代码围栏内容）
+  function hasTable(text) {
+    const s = String(text == null ? '' : text);
+    // 先剔除代码围栏，避免围栏内的竖线被当成表格
+    const cleaned = s.replace(/```[\s\S]*?(```|$)/g, '');
+    const lines = cleaned.split(/\r?\n/);
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (tableAt(lines, i)) return true;
+    }
+    return false;
+  }
+
+  // 对齐方式 -> class 属性
+  function alignAttr(align) {
+    return align ? ' class="al-' + align + '"' : '';
+  }
+
   /* ---------------- 块级渲染 ---------------- */
   function render(text) {
     const raw = String(text == null ? '' : text).split(/\r?\n/);
@@ -171,6 +270,25 @@
         continue;
       }
 
+      // 表格（GFM 管道表格）
+      const tbl = tableAt(raw, i);
+      if (tbl) {
+        const ths = tbl.header.map(function (c, k) {
+          return '<th' + alignAttr(tbl.aligns[k]) + '>' + inline(esc(c)) + '</th>';
+        }).join('');
+        const trs = tbl.rows.map(function (r) {
+          return '<tr>' + r.map(function (c, k) {
+            return '<td' + alignAttr(tbl.aligns[k]) + '>' + inline(esc(c)) + '</td>';
+          }).join('') + '</tr>';
+        }).join('');
+        out.push('<div class="md-table-wrap"><table class="md-table">' +
+          '<thead><tr>' + ths + '</tr></thead>' +
+          '<tbody>' + trs + '</tbody>' +
+          '</table></div>');
+        i += 2 + tbl.rows.length;
+        continue;
+      }
+
       // 段落（保留手动换行）
       if (!line.trim()) { i++; continue; }
       const buf = [];
@@ -181,7 +299,8 @@
              !/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(raw[i]) &&
              !/^\s*>\s?/.test(raw[i]) &&
              !/^\s*[-*+]\s+/.test(raw[i]) &&
-             !/^\s*\d+\.\s+/.test(raw[i])) {
+             !/^\s*\d+\.\s+/.test(raw[i]) &&
+             !tableAt(raw, i)) {
         buf.push(raw[i]);
         i++;
       }
@@ -196,6 +315,15 @@
   /* ---------------- 去标记（供摘要用） ---------------- */
   function strip(text) {
     let s = String(text == null ? '' : text);
+
+    // 表格行：分隔行整行删除，其余行的竖线换成空格（摘要里不要出现 |）
+    s = s.split(/\r?\n/).map(function (line) {
+      if (!hasPipe(line)) return line;
+      if (isDelimRow(line)) return '';
+      // 转义竖线 \| 先用占位符保护，最后还原为字面量 |
+      return line.replace(/\\\|/g, '%%MDP%%').replace(/\|/g, ' ').replace(/%%MDP%%/g, '|');
+    }).join('\n');
+
     s = s.replace(/```[a-zA-Z0-9]*\n?/g, '').replace(/```/g, '');
     s = s.replace(/!\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g, '$1');
     s = s.replace(/\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g, '$1');

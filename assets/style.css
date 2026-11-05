@@ -41,6 +41,9 @@
   --bubble-tag-text:#666666;
   --bubble-tag-bg-me:rgba(0,0,0,.08);
   --bubble-tag-text-me:#4a4a4a;
+  /* Markdown 表格横线（自己气泡内的绿底上需要更深） */
+  --md-table-line:#e6e6e6;
+  --md-table-line-me:rgba(0,0,0,.18);
 
   --accent:#07c160;
   --accent-text:#ffffff;
@@ -126,6 +129,8 @@
   --bubble-tag-text:#b9b9c2;
   --bubble-tag-bg-me:rgba(255,255,255,.1);
   --bubble-tag-text-me:#cfe3d2;
+  --md-table-line:rgba(255,255,255,.12);
+  --md-table-line-me:rgba(255,255,255,.22);
 
   --accent:#07c160;
   --accent-text:#ffffff;
@@ -207,6 +212,8 @@
   --bubble-tag-text:#6b7765;
   --bubble-tag-bg-me:rgba(0,0,0,.07);
   --bubble-tag-text-me:#4d5a48;
+  --md-table-line:#e0e8d8;
+  --md-table-line-me:rgba(0,0,0,.16);
 
   --accent:#5a8f4a;
   --accent-text:#ffffff;
@@ -290,6 +297,8 @@
   --bubble-tag-text:#9aa4ae;
   --bubble-tag-bg-me:rgba(255,255,255,.1);
   --bubble-tag-text-me:#b7d9c4;
+  --md-table-line:rgba(255,255,255,.13);
+  --md-table-line-me:rgba(255,255,255,.24);
 
   --accent:#2ea043;
   --accent-text:#ffffff;
@@ -373,6 +382,8 @@
   --bubble-tag-text:#7a6955;
   --bubble-tag-bg-me:rgba(90,65,40,.1);
   --bubble-tag-text-me:#6a5947;
+  --md-table-line:#e5d5bd;
+  --md-table-line-me:rgba(90,65,40,.2);
 
   --accent:#a9713f;
   --accent-text:#ffffff;
@@ -561,12 +572,14 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
   justify-content:center;font-size:16px;background:var(--side-avatar-bg);color:var(--side-text-strong);
 }
 .msg-row.mine .avatar{background:var(--bubble-me);color:var(--bubble-me-text);}
-.msg-col{max-width:min(620px,72%);display:flex;flex-direction:column;}
+.msg-col{max-width:min(620px,72%);display:flex;flex-direction:column;min-width:0;}
 .msg-row.mine .msg-col{align-items:flex-end;}
 .bubble{
   background:var(--bubble-you);color:var(--bubble-you-text);border-radius:var(--radius);
   padding:9px 12px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;position:relative;
   box-shadow:var(--bubble-shadow);cursor:zoom-in;transition:box-shadow .15s;
+  /* 允许气泡在长表格等超宽内容下收缩，配合 .md-table-wrap 的横向滚动 */
+  min-width:0;max-width:100%;
 }
 .bubble:hover{box-shadow:var(--bubble-shadow-hover);}
 .msg-row.mine .bubble{background:var(--bubble-me);color:var(--bubble-me-text);}
@@ -771,6 +784,26 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
 /* 自己发送的气泡（绿底）内代码块需要更深一点的底色 */
 .msg-row.mine .bubble .md code,
 .msg-row.mine .bubble .md pre{background:var(--md-code-bg-me);}
+
+/* ---------- Markdown 表格（Notion 式横线） ---------- */
+.md-table-wrap{
+  overflow-x:auto;margin:8px 0;
+  -webkit-overflow-scrolling:touch;
+}
+.md-table{
+  border-collapse:collapse;width:max-content;min-width:100%;font-size:.95em;
+}
+.md-table th,.md-table td{
+  padding:6px 12px;text-align:left;vertical-align:top;
+  border-bottom:1px solid var(--md-table-line);white-space:normal;
+}
+.md-table th{font-weight:600;}
+.md-table tbody tr:last-child td{border-bottom:none;}
+.md-table .al-center{text-align:center;}
+.md-table .al-right{text-align:right;}
+/* 绿底气泡内的横线需加深，否则在浅绿底上看不见 */
+.msg-row.mine .bubble .md-table th,
+.msg-row.mine .bubble .md-table td{border-bottom-color:var(--md-table-line-me);}
 
 /* ---------- 输入区实时预览条 ---------- */
 .comp-preview{border-top:1px solid var(--line-soft);background:var(--panel);}
