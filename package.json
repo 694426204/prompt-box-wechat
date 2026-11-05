@@ -5,7 +5,8 @@
   "description": "仿微信界面的提示词收纳箱（纯静态，零运行时依赖）",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "preview": "node scripts/build.mjs && npx serve dist -l 8899",
+    "preview": "node scripts/build.mjs && node scripts/serve.mjs -p 8899 -d dist",
+    "serve": "node scripts/serve.mjs -p 8899 -d dist --open",
     "deploy:pages": "npm run build && npx wrangler pages deploy dist --project-name=prompt-box",
     "deploy:workers": "npm run build && npx wrangler deploy -c wrangler.workers.jsonc",
     "deploy:vercel": "npm run build && npx vercel --prod"

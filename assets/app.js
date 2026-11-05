@@ -11,6 +11,28 @@
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
 
+  /* ---------------- Markdown 引擎优雅降级 ----------------
+     markdown.js 若因缓存错配 / 部署滚动而加载失败，window.MD 会是 undefined，
+     直接调用会抛 ReferenceError 并中断整个 render()，导致页面一片空白。
+     这里用局部常量遮蔽全局，MD 缺失时自动降级为「全部按纯文本处理」，
+     页面照常可用，仅失去 Markdown 排版能力。 */
+  const MD_OK = !!(window.MD && typeof window.MD.render === 'function');
+  const MD = MD_OK ? window.MD : {
+    detect: function () { return 'txt'; },
+    detectLoose: function () { return 'txt'; },
+    render: function (s) { return esc(s); },
+    strip: function (s) { return String(s == null ? '' : s); },
+    isMdMsg: function () { return false; },
+    firstHeading: function () { return null; }
+  };
+
+  function showDegrade(msg) {
+    const bar = document.getElementById('degradeBar');
+    if (!bar) return;
+    bar.textContent = msg;
+    bar.hidden = false;
+  }
+
   /* ---------------- 状态 ---------------- */
   let state = load();
 
@@ -906,8 +928,12 @@
   applyTheme();
 
   /* ---------------- 启动 ---------------- */
+  if (!MD_OK) {
+    showDegrade('Markdown 排版模块未能加载，已降级为纯文本显示。请按 Ctrl+F5 强制刷新页面。');
+  }
   render();
   scrollBottom();
+  window.__promptBoxReady = true;
 
   // 每分钟检查一次收藏到期
   setInterval(() => {
@@ -921,3 +947,4 @@
 
   window.__promptBox = { get state() { return state; }, save, render };
 })();
+

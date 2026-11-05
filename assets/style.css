@@ -687,6 +687,16 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
 }
 @keyframes toastIn{from{opacity:0;transform:translate(-50%,8px);}to{opacity:1;transform:translate(-50%,0);}}
 
+/* ---------- 降级提示条 ----------
+   核心资源加载失败时的可见提示。position:fixed 使其脱离 .app 的 flex 流，
+   不会挤占侧栏 / 聊天区的布局。 */
+.degrade-bar{
+  position:fixed;left:0;right:0;top:0;z-index:400;
+  background:var(--warn-soft-bg);color:var(--warn-soft-text);
+  border-bottom:1px solid var(--warn);
+  padding:8px 16px;font-size:13px;line-height:1.5;text-align:center;
+}
+
 /* ---------- 主题选择面板 ---------- */
 .theme-panel{
   position:absolute;top:50px;right:14px;z-index:120;width:270px;

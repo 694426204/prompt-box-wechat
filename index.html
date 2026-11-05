@@ -12,6 +12,9 @@
 
 <div class="app" id="app">
 
+  <!-- 降级提示条：核心资源加载失败时显示，避免用户看到空白页却不知原因 -->
+  <div class="degrade-bar" id="degradeBar" hidden></div>
+
   <!-- ============ 左侧会话栏 ============ -->
   <aside class="sidebar" id="sidebar">
     <div class="side-top">
@@ -155,5 +158,16 @@
 <script src="data/seed-prompts.js"></script>
 <script src="assets/markdown.js"></script>
 <script src="assets/app.js"></script>
+<script>
+/* 内联兜底：app.js 本身加载失败时（缓存错配 / 部署滚动）给出可见提示，
+   而不是让用户面对一个完全没有反应的空白页面。内联脚本不依赖外部资源，必然执行。 */
+setTimeout(function () {
+  if (window.__promptBoxReady) return;
+  var bar = document.getElementById('degradeBar');
+  if (!bar) return;
+  bar.textContent = '核心脚本未能加载，请按 Ctrl+F5 强制刷新页面；若仍无效，请检查网络或清除浏览器缓存。';
+  bar.hidden = false;
+}, 1500);
+</script>
 </body>
 </html>
