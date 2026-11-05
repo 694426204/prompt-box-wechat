@@ -5,11 +5,13 @@
  * 用法：
  *   node scripts/serve.mjs [--port 8899] [--dir dist] [--host 127.0.0.1] [--open]
  */
-import { createServer } from 'node:http';
+import { createServer, get as httpGet } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, join, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
+
+const http = { get: httpGet };
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 
@@ -157,6 +159,29 @@ async function handle(req, res) {
   }
 }
 
+/* ---------------- 端口探测 ----------------
+   端口被占用时，先确认占用者是不是「本项目已在运行」。
+   是 → 复用它并直接打开浏览器（而不是报错让人一头雾水）；
+   否 → 才报错退出。 */
+function probe(url) {
+  return new Promise(resolve => {
+    const req = http.get(url, { timeout: 1500 }, res => {
+      let body = '';
+      res.on('data', d => { body += d; if (body.length > 200000) res.destroy(); });
+      res.on('end', () => resolve({ ok: res.statusCode === 200, body }));
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function isOurInstance(port) {
+  const r = await probe('http://127.0.0.1:' + port + '/');
+  if (!r || !r.ok) return false;
+  // 本项目的首页一定包含这些标记
+  return /id="app"/.test(r.body) && /msgList|composerInput/.test(r.body);
+}
+
 /* ---------------- 启动 ---------------- */
 async function main() {
   try {
@@ -175,11 +200,20 @@ async function main() {
     });
   });
 
-  server.on('error', err => {
+  server.on('error', async err => {
     if (err.code === 'EADDRINUSE') {
-      console.error('[serve] 端口 ' + args.port + ' 已被占用，服务未启动。');
-      console.error('[serve] 请先关闭占用该端口的进程，或换一个端口：');
+      // 已有实例在跑同一个项目 → 复用它
+      if (await isOurInstance(args.port)) {
+        const url = 'http://127.0.0.1:' + args.port + '/';
+        console.log('[serve] 端口 ' + args.port + ' 上已有本项目在运行，直接复用。');
+        console.log('[serve] 访问：' + url);
+        if (args.open) openBrowser(url);
+        process.exit(0);
+      }
+      console.error('[serve] 端口 ' + args.port + ' 已被其它程序占用，服务未启动。');
+      console.error('[serve] 请关闭占用该端口的程序，或换一个端口：');
       console.error('[serve]   node scripts/serve.mjs --port ' + (args.port + 1));
+      console.error('[serve] 若只是不想起服务，也可以直接双击 index.html 用浏览器打开。');
       process.exit(1);
     }
     console.error('[serve] 启动失败：', err.message);
