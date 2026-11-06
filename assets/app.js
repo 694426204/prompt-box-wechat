@@ -842,6 +842,14 @@
   /* ---------------- 主题系统 ---------------- */
   const THEME_KEY = 'prompt-box-theme-v1';
 
+  /* 放大层宽度规则
+     STD  : 标准宽度，既是初始值也是最小值（用户可在主题面板中调整）
+     LB_STD_MIN / LB_STD_MAX : 标准宽度输入框自身的合法区间，防止极端值撑坏布局 */
+  const LB_STD_DEFAULT = 820;
+  const LB_STD_MIN = 320;
+  const LB_STD_MAX = 1200;
+  const LB_RATIO = 2 / 3;   // 最大宽度 = 父容器内容盒宽度 × 2/3
+
   const THEMES = [
     { id: 'day',   name: '白天', side: '#2e2e2e', bg: '#f5f5f5', bubble: '#95ec69', accent: '#07c160' },
     { id: 'dark',  name: '暗黑', side: '#121214', bg: '#1b1b1f', bubble: '#2f6b3a', accent: '#07c160' },
@@ -850,14 +858,22 @@
     { id: 'wood',  name: '原木', side: '#5b4632', bg: '#f2e8db', bubble: '#e3c795', accent: '#a9713f' }
   ];
 
-  let theme = { preset: 'day', bg: '', accent: '' };
+  let theme = { preset: 'day', bg: '', accent: '', lbStd: LB_STD_DEFAULT, lbW: LB_STD_DEFAULT };
 
   function loadTheme() {
     try {
       const raw = localStorage.getItem(THEME_KEY);
       if (!raw) return;
       const t = JSON.parse(raw);
-      if (t && t.preset) theme = { preset: t.preset, bg: t.bg || '', accent: t.accent || '' };
+      if (t && t.preset) {
+        theme = {
+          preset: t.preset,
+          bg: t.bg || '',
+          accent: t.accent || '',
+          lbStd: clampInt(t.lbStd, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT),
+          lbW: clampInt(t.lbW, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT)
+        };
+      }
     } catch (e) { /* 忽略损坏的主题配置 */ }
   }
 
@@ -906,6 +922,60 @@
     const bgInput = $('#customBg'), acInput = $('#customAccent');
     if (bgInput) bgInput.value = theme.bg || '#f5f5f5';
     if (acInput) acInput.value = theme.accent || '#07c160';
+
+    applyLbWidth();
+  }
+
+  /* ---------------- 放大层宽度控制 ----------------
+     规则：宽度可在「标准宽度」与「最大宽度」之间调整。
+       上限 cap  = 父容器（放大层内容盒）宽度 × 2/3
+       下限 minV = min(标准宽度, cap)  —— 窄屏时物理上限优先于标准宽度
+       生效 eff  = clamp(设定宽度, minV, cap)
+     theme.lbW 存的是用户设定值（意图），不是钳制后的 eff：
+     窗口缩小时显示被钳窄，窗口放大后自动恢复原设定宽度。 */
+
+  function clampInt(v, lo, hi, fallback) {
+    const n = Math.round(Number(v));
+    if (!isFinite(n)) return fallback;
+    return Math.min(Math.max(n, lo), hi);
+  }
+
+  /* 放大层内容盒宽度 = 视口宽 − 放大层左右 padding */
+  function lbContainerWidth() {
+    const lb = $('#lightbox');
+    const cs = getComputedStyle(lb);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const vw = document.documentElement.clientWidth;
+    return Math.max(0, vw - padX);
+  }
+
+  /* 最大宽度：父容器内容盒的 2/3 */
+  function lbMaxWidth() {
+    return Math.floor(lbContainerWidth() * LB_RATIO);
+  }
+
+  function applyLbWidth() {
+    const std = clampInt(theme.lbStd, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
+    const cap = lbMaxWidth();
+    const minV = Math.min(std, cap);
+    const eff = Math.min(Math.max(clampInt(theme.lbW, LB_STD_MIN, LB_STD_MAX, std), minV), cap);
+
+    const root = document.documentElement;
+    root.style.setProperty('--lb-std-width', std + 'px');
+    root.style.setProperty('--lb-width', eff + 'px');
+
+    const slider = $('#lbWidth'), stdInput = $('#lbStdWidth'), val = $('#lbWidthVal');
+    if (slider) {
+      slider.min = String(minV);
+      slider.max = String(Math.max(minV, cap));
+      slider.value = String(eff);
+    }
+    if (stdInput) stdInput.value = String(std);
+    if (val) {
+      val.textContent = eff + 'px';
+      // 显式告知上限来源：屏幕宽度的 2/3，避免"标准宽度 820 却只显示 810"的困惑
+      val.title = '上限 ' + cap + 'px（屏幕宽度的 2/3）';
+    }
   }
 
   $('#btnTheme').addEventListener('click', e => {
@@ -924,8 +994,35 @@
     saveTheme(); applyTheme();
   });
 
+  // 放大层宽度：input 实时预览，change 松手时才落盘，避免拖动过程高频写存储
+  $('#lbWidth').addEventListener('input', e => {
+    theme.lbW = Number(e.target.value);
+    applyLbWidth();
+  });
+  $('#lbWidth').addEventListener('change', e => {
+    theme.lbW = Number(e.target.value);
+    applyLbWidth();
+    saveTheme();
+  });
+  // 标准宽度变更：设定宽度不得低于标准宽度，低于则抬到新标准宽度
+  $('#lbStdWidth').addEventListener('input', e => {
+    theme.lbStd = clampInt(e.target.value, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
+    if (theme.lbW < theme.lbStd) theme.lbW = theme.lbStd;
+    applyLbWidth();
+  });
+  $('#lbStdWidth').addEventListener('change', e => {
+    theme.lbStd = clampInt(e.target.value, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
+    if (theme.lbW < theme.lbStd) theme.lbW = theme.lbStd;
+    applyLbWidth();
+    saveTheme();
+  });
+
+  // 视口变化时上限 cap 随之变化，需重算（展开状态与设定值均保留）
+  window.addEventListener('resize', () => { applyLbWidth(); });
+
   loadTheme();
   applyTheme();
+  applyLbWidth();
 
   /* ---------------- 启动 ---------------- */
   if (!MD_OK) {

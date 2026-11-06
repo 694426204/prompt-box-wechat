@@ -165,6 +165,39 @@
 - 主题存储：`localStorage['prompt-box-theme-v1']`
 - 样式变量：`assets/style.css:7`（`:root`）及各 `[data-theme="xxx"]` 覆盖块
 
+### 放大层宽度配置
+
+灯箱卡片（`.lb-card`）的宽度可配置，配置入口在**主题面板**内，随主题一起持久化。
+
+| 配置项 | 取值 | 含义 |
+|---|---|---|
+| **放大层标准宽度** | 数字输入框，`320 ~ 1200`px，步长 10，默认 **820** | 既是**初始宽度**，也是**最小宽度** |
+| **放大层宽度** | 滑块，范围 `[标准宽度, 最大宽度]` | 当前生效宽度的设定值 |
+
+**钳制规则**（实现在 `applyLbWidth()` `assets/app.js:957`）：
+
+```
+上限 cap  = 放大层内容盒宽度 × 2/3      （内容盒 = 视口宽 − 放大层左右 padding）
+下限 minV = min(标准宽度, cap)           （窄屏时物理上限优先于标准宽度）
+生效 eff  = clamp(设定宽度, minV, cap)
+```
+
+- 设定值超出上限时**自动钳制到上限**，低于标准宽度时**抬回标准宽度**
+- `theme.lbW` 存储的是**用户设定值（意图）**而非钳制后的结果：窗口缩小时显示被钳窄，窗口放大后自动恢复原设定宽度
+- CSS 侧 `max-width:var(--lb-max-ratio)` 在渲染时独立兜底，与 JS 钳制结果一致（两者基准同为放大层内容盒）
+
+**CSS 变量**（`assets/style.css:12`，仅定义在 `:root`，与主题无关）：
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `--lb-std-width` | `820px` | 标准宽度，初始值与最小值 |
+| `--lb-width` | `var(--lb-std-width)` | 当前生效宽度，由 JS 写入（已钳制） |
+| `--lb-max-ratio` | `66.6667%` | 最大宽度占父容器（放大层内容盒）的比例，即 2/3 |
+
+**持久化字段**：`theme.lbStd`（标准宽度）与 `theme.lbW`（设定宽度），随 `prompt-box-theme-v1` 一同存储。
+
+> 普通灯箱与双击半全屏（`.lightbox.wide`）**共用同一套宽度配置与上限**，wide 仅在高度上保留半全屏语义。
+
 ---
 
 ## 界面截图
@@ -385,7 +418,7 @@ Vercel 侧由 `vercel.json` 的 `headers` 字段提供等价配置。
 | 存储键 | 内容 |
 |---|---|
 | `localStorage['prompt-box-wechat-v1']` | 完整状态：`{ sessions, messages, pins, favs, currentSessionId }` |
-| `localStorage['prompt-box-theme-v1']` | 主题配置：`{ preset, bg, accent }` |
+| `localStorage['prompt-box-theme-v1']` | 主题配置：`{ preset, bg, accent, lbStd, lbW }` |
 
 首次打开时由 `data/seed-prompts.js` 的种子数据初始化（4 个会话 / 6 条提示词），之后一律以本地数据为准。
 
@@ -507,6 +540,7 @@ sessions: [
 | `v10-hardening` | 修复「打不开」：内置零依赖服务器 + 缓存错配消除 + 优雅降级 |
 | `v11-launcher` | 启动链路加固：`启动.bat` 一键启动 + 端口占用智能复用 + `file://` 零进程直开 |
 | `v12-tables` | Markdown 表格识别与渲染：GFM 管道表格支持 + Notion 式横线样式 + 引擎回归测试 |
+| `v13-lb-width` | 放大层卡片宽度可配置：标准宽度 / 上限钳制 + 主题面板滑块 |
 
 回滚到任意锚点：
 
