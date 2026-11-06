@@ -4,3 +4,7 @@ node_modules/
 dist/
 .vercel/
 .wrangler/
+__probe*.html
+__shot*.html
+__probeout.html
+shots/

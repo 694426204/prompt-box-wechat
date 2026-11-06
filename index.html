@@ -132,6 +132,9 @@
 <div class="lightbox" id="lightbox" hidden>
   <div class="lb-mask" id="lbMask"></div>
   <div class="lb-card" role="dialog" aria-modal="true" aria-label="消息详情">
+    <!-- 左右边缘拖拽手柄：按住卡片边缘可横向调整宽度（窄热区，不遮挡正文与关闭按钮） -->
+    <div class="lb-grip lb-grip-l" id="lbGripL" data-side="l" role="separator" tabindex="0" aria-label="拖拽调整宽度（左）" title="拖拽调整宽度"></div>
+    <div class="lb-grip lb-grip-r" id="lbGripR" data-side="r" role="separator" tabindex="0" aria-label="拖拽调整宽度（右）" title="拖拽调整宽度"></div>
     <header class="lb-head">
       <div>
         <div class="lb-title" id="lbTitle">消息详情</div>
@@ -160,6 +163,8 @@
       </div>
     </footer>
   </div>
+  <!-- 拖拽时的实时宽度提示 -->
+  <div class="lb-width-hint" id="lbWidthHint" hidden></div>
 </div>
 
 <!-- ============ 右键菜单 ============ -->

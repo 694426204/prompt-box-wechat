@@ -500,7 +500,12 @@
   });
 
   $('#lbClose').addEventListener('click', closeLightbox);
-  $('#lbMask').addEventListener('click', closeLightbox);
+  $('#lbMask').addEventListener('click', () => {
+    // 刚在卡片边缘拖过宽度时，pointerup 之后可能还会落一次 click 到遮罩上，
+    // 这里只吞掉「拖拽结束后 300ms 内」的这一次误触，之后的点击必须正常关闭。
+    if (lbDrag.moved && Date.now() - (lbDrag.endTime || 0) < 300) return;
+    closeLightbox();
+  });
 
   /* ---------------- 侧栏视图切换 ---------------- */
   $('#sideNav').addEventListener('click', e => {
@@ -954,6 +959,16 @@
     return Math.floor(lbContainerWidth() * LB_RATIO);
   }
 
+  /* 放大层内容盒在视口坐标系中的左右边界（用于限制拖拽偏移，防止溢出） */
+  function lbContainerBox() {
+    const lb = $('#lightbox');
+    const cs = getComputedStyle(lb);
+    const vw = document.documentElement.clientWidth;
+    const left = parseFloat(cs.paddingLeft) || 0;
+    const right = vw - (parseFloat(cs.paddingRight) || 0);
+    return { left: left, right: right };
+  }
+
   function applyLbWidth() {
     const std = clampInt(theme.lbStd, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
     const cap = lbMaxWidth();
@@ -963,6 +978,10 @@
     const root = document.documentElement;
     root.style.setProperty('--lb-std-width', std + 'px');
     root.style.setProperty('--lb-width', eff + 'px');
+
+    // 宽度变化后卡片会重新居中，之前拖拽留下的偏移作废（拖拽过程中由拖拽逻辑重新写入）
+    const card = $('#lightbox .lb-card');
+    if (card) card.style.transform = '';
 
     const slider = $('#lbWidth'), stdInput = $('#lbStdWidth'), val = $('#lbWidthVal');
     if (slider) {
@@ -976,6 +995,160 @@
       // 显式告知上限来源：屏幕宽度的 2/3，避免"标准宽度 820 却只显示 810"的困惑
       val.title = '上限 ' + cap + 'px（屏幕宽度的 2/3）';
     }
+  }
+
+  /* ---------------- 放大层边缘拖拽调宽 ----------------
+     在卡片左右边缘按住横向拖动即可调整宽度：
+       · 被拖的那条边 1:1 跟手，对侧边钉住不动
+       · 宽度仍受既有钳制约束：上限 = 放大层内容盒 × 2/3，下限 = 标准宽度
+       · 拖拽中关闭宽度过渡以保证跟手；松手后宽度归位居中并写入 theme.lbW 落盘
+     命中方式用「卡片边缘热区」而非覆盖式把手，避免遮住正文、关闭按钮与横向滚动条。 */
+  const LB_GRIP_ZONE = 8;   // 边缘热区宽度（px）
+  const lbDrag = { on: false, side: '', startX: 0, startW: 0, anchor: 0, moved: false };
+
+  function lbDragCard() { return $('#lightbox .lb-card'); }
+
+  function lbDragStart(e) {
+    const card = lbDragCard();
+    if (!card || lbDrag.on) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    // 关闭按钮等交互元素优先，不触发调宽
+    if (e.target && e.target.closest && e.target.closest('#lbClose,.act,button,a,input,textarea')) return;
+
+    const rect = card.getBoundingClientRect();
+    const dL = e.clientX - rect.left;
+    const dR = rect.right - e.clientX;
+    let side = '';
+    if (dL <= LB_GRIP_ZONE && dL <= dR) side = 'l';
+    else if (dR <= LB_GRIP_ZONE) side = 'r';
+    else return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    lbDrag.on = true;
+    lbDrag.side = side;
+    lbDrag.startX = e.clientX;
+    lbDrag.startW = rect.width;
+    lbDrag.anchor = side === 'r' ? rect.left : rect.right;   // 对侧边钉住
+    lbDrag.moved = false;
+
+    card.classList.add('lb-resizing');
+    document.body.classList.add('lb-resizing');
+    if (card.setPointerCapture) {
+      try { card.setPointerCapture(e.pointerId); } catch (err) { /* 忽略捕获失败 */ }
+    }
+    lbDragShow(e);
+  }
+
+  function lbDragMove(e) {
+    if (!lbDrag.on) return;
+    e.preventDefault();
+    const dx = e.clientX - lbDrag.startX;
+    // 拖右边缘：指针右移则变宽；拖左边缘：指针左移则变宽
+    const want = lbDrag.side === 'r' ? lbDrag.startW + dx : lbDrag.startW - dx;
+
+    // 只写设定值，最终生效值仍由 applyLbWidth 统一钳制
+    // （下限 = 标准宽度，上限 = 放大层内容盒 × 2/3）
+    const std = clampInt(theme.lbStd, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
+    const cap = lbMaxWidth();
+    const minV = Math.min(std, cap);
+    theme.lbW = Math.min(Math.max(want, minV), cap);
+    applyLbWidth();
+
+    // 卡片是 flex 居中的，改宽会带动两侧一起走；用 translateX 把对侧边拉回原位，
+    // 使被拖的那条边严格跟手
+    const card = lbDragCard();
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      let tx = lbDrag.side === 'r'
+        ? lbDrag.anchor - rect.left
+        : lbDrag.anchor - rect.right;
+      // 夹住偏移量，保证卡片始终落在放大层内容盒内，不溢出视口
+      const box = lbContainerBox();
+      if (lbDrag.side === 'r') {
+        tx = Math.min(tx, box.right - rect.right);
+        tx = Math.max(tx, box.left - rect.left);
+      } else {
+        tx = Math.max(tx, box.left - rect.left);
+        tx = Math.min(tx, box.right - rect.right);
+      }
+      card.style.transform = 'translateX(' + tx.toFixed(2) + 'px)';
+    }
+    if (Math.abs(dx) > 2) lbDrag.moved = true;
+    lbDragShow(e);
+  }
+
+  function lbDragEnd(e) {
+    if (!lbDrag.on) return;
+    const card = lbDragCard();
+    lbDrag.on = false;
+    if (card) card.classList.remove('lb-resizing');
+    document.body.classList.remove('lb-resizing');
+    const hint = $('#lbWidthHint');
+    if (hint) hint.hidden = true;
+    // 记录松手时刻，供遮罩点击做「误触时间窗」判断
+    lbDrag.endTime = Date.now();
+    // 松手后清掉拖拽期间的对侧锚定偏移，让卡片重新居中
+    applyLbWidth();
+    // 松手落盘：保存用户设定的宽度，后续打开该模块保持此宽度
+    saveTheme();
+  }
+
+  function lbDragShow(e) {
+    const hint = $('#lbWidthHint');
+    if (!hint) return;
+    const card = lbDragCard();
+    const w = card ? Math.round(card.getBoundingClientRect().width) : 0;
+    hint.textContent = w + 'px';
+    hint.hidden = false;
+    hint.style.left = e.clientX + 'px';
+    hint.style.top = e.clientY + 'px';
+  }
+
+  function initLbDrag() {
+    const card = lbDragCard();
+    if (!card) return;
+    card.addEventListener('pointerdown', lbDragStart);
+    card.addEventListener('pointermove', lbDragMove);
+    card.addEventListener('pointerup', lbDragEnd);
+    card.addEventListener('pointercancel', lbDragEnd);
+
+    // 未拖拽时，指针靠近左右边缘高亮对应手柄，提示此处可拖拽
+    card.addEventListener('pointermove', e => {
+      if (lbDrag.on) return;
+      const rect = card.getBoundingClientRect();
+      const dL = e.clientX - rect.left;
+      const dR = rect.right - e.clientX;
+      card.classList.toggle('grip-hot-l', dL <= LB_GRIP_ZONE && dL <= dR);
+      card.classList.toggle('grip-hot-r', dR <= LB_GRIP_ZONE && dR < dL);
+      card.style.cursor = (dL <= LB_GRIP_ZONE || dR <= LB_GRIP_ZONE) ? 'ew-resize' : '';
+    });
+    card.addEventListener('pointerleave', () => {
+      card.classList.remove('grip-hot-l', 'grip-hot-r');
+      card.style.cursor = '';
+    });
+
+    // 拖拽可能终止在卡片外，用 window 兜底收尾，避免卡片停留在拖拽态
+    window.addEventListener('pointerup', lbDragEnd);
+    window.addEventListener('pointercancel', lbDragEnd);
+
+    // 键盘可达：手柄获得焦点后，左右方向键每次 10px
+    ['#lbGripL', '#lbGripR'].forEach(sel => {
+      const grip = $(sel);
+      if (!grip) return;
+      grip.addEventListener('keydown', e => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const std = clampInt(theme.lbStd, LB_STD_MIN, LB_STD_MAX, LB_STD_DEFAULT);
+        const cap = lbMaxWidth();
+        const minV = Math.min(std, cap);
+        const step = e.key === 'ArrowRight' ? 10 : -10;
+        theme.lbW = Math.min(Math.max(theme.lbW + step, minV), cap);
+        applyLbWidth();
+        saveTheme();
+      });
+    });
   }
 
   $('#btnTheme').addEventListener('click', e => {
@@ -1023,6 +1196,7 @@
   loadTheme();
   applyTheme();
   applyLbWidth();
+  initLbDrag();
 
   /* ---------------- 启动 ---------------- */
   if (!MD_OK) {
