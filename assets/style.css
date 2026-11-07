@@ -690,7 +690,9 @@ body.lb-resizing,body.lb-resizing *{cursor:ew-resize !important;user-select:none
 }
 /* 灯箱内媒体随宽度自适应，避免图片/宽内容溢出卡片 */
 .lb-body img{max-width:100%;height:auto;}
-.lb-body .md-table-wrap{max-width:100%;}
+/* 灯箱内宽表格不再自带横向轨道，改由正文统一承载，
+   横向滚动条因此常驻卡片底部，纵向滚动时始终可拖动 */
+.lb-body .md-table-wrap{overflow-x:visible;max-width:none;}
 .lightbox.wide .lb-card{
   /* wide 与普通共用同一宽度配置与上限，仅高度维持半全屏语义 */
   height:min(78vh,760px);max-height:100%;
@@ -703,8 +705,19 @@ body.lb-resizing,body.lb-resizing *{cursor:ew-resize !important;user-select:none
 .lb-title{font-size:17px;font-weight:600;word-break:break-word;}
 .lb-meta{font-size:12px;color:var(--text-sub);margin-top:4px;}
 .lb-body{
-  flex:1;overflow-y:auto;padding:28px 26px;font-size:15.5px;line-height:1.9;white-space:pre-wrap;
+  /* 横+纵同容器：横向轨道归属本盒子，才能常驻卡片底部不随内容跑动 */
+  flex:1;overflow:auto;padding:28px 26px;font-size:15.5px;line-height:1.9;white-space:pre-wrap;
   word-break:break-word;background:var(--lb-body-bg);color:var(--text);
+}
+/* 灯箱滚动条：竖向轨道隐藏（内容仍可滚），横向轨道常驻卡片底部便于拖动 */
+.lb-body::-webkit-scrollbar{width:0;height:12px;}
+.lb-body::-webkit-scrollbar-track{background:transparent;}
+.lb-body::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:6px;}
+.lb-body::-webkit-scrollbar-thumb:hover{background:var(--text-dim);}
+.lb-body::-webkit-scrollbar-corner{background:transparent;}
+@supports not selector(::-webkit-scrollbar){
+  /* Firefox 无 ::-webkit-scrollbar，退化为隐藏原生轨道（滚轮/触摸滚动不受影响） */
+  .lb-body{scrollbar-width:none;}
 }
 .lb-foot{border-top:1px solid var(--line);padding:12px 22px;background:var(--lb-bg);}
 .lb-actions{display:flex;flex-wrap:wrap;gap:8px;}

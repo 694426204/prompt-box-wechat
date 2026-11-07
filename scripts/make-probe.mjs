@@ -145,11 +145,30 @@ const probeScript = `<script>
     ok('W9 关闭按钮未被手柄遮挡', topEl === closeBtn || closeBtn.contains(topEl), 'top=' + (topEl && (topEl.className || topEl.id)));
 
     var wrap = card().querySelector('.md-table-wrap');
+    var body = document.getElementById('lbBody');
     if (wrap) {
       var cw = wOf(card());
       ok('W10 宽表格未撑破卡片', wrap.offsetWidth <= cw + 1, 'wrap=' + wrap.offsetWidth + ' card=' + cw);
-      ok('W10b 宽表格内部横向滚动', wrap.scrollWidth > wrap.clientWidth, 'sw=' + wrap.scrollWidth + ' cw=' + wrap.clientWidth);
+      // 横向轨道已上提到正文，表格自身不再带滚动容器
+      ok('W10b 表格容器不再自带横向轨道', getComputedStyle(wrap).overflowX === 'visible', 'ox=' + getComputedStyle(wrap).overflowX);
     } else { log.push('INFO 未找到 .md-table-wrap'); fail++; }
+
+    /* W14 竖向滚动条已隐藏：轨道不占位（offsetWidth === clientWidth） */
+    ok('W14 竖向滚动条已隐藏', body.offsetWidth - body.clientWidth === 0,
+       'off=' + body.offsetWidth + ' cli=' + body.clientWidth);
+
+    /* W15 横向滚动归属正文：正文可横滚，且表格容器不再截流 */
+    ok('W15 横向滚动归属正文', body.scrollWidth > body.clientWidth,
+       'sw=' + body.scrollWidth + ' cw=' + body.clientWidth);
+
+    /* W16 横向轨道常驻卡片底部：纵向滚动后仍在正文盒子底部占位 */
+    var canScrollY = body.scrollHeight > body.clientHeight;
+    if (canScrollY) { body.scrollTop = body.scrollHeight; await sleep(120); }
+    body.scrollLeft = 200;
+    await sleep(120);
+    ok('W16a 纵向滚动后横向仍可拖动', body.scrollLeft > 0, 'scrollLeft=' + body.scrollLeft + ' scrollTop=' + body.scrollTop);
+    ok('W16b 横向轨道常驻正文底部', body.offsetHeight - body.clientHeight > 0,
+       'off=' + body.offsetHeight + ' cli=' + body.clientHeight + ' canScrollY=' + canScrollY);
 
     var hint = document.getElementById('lbWidthHint');
     ok('W11 宽度提示条默认隐藏', !!(hint && hint.hidden));
@@ -161,6 +180,16 @@ const probeScript = `<script>
     await sleep(320);
     var wA = wOf(card());
     ok('W12 方向键可调宽', wA > wB, 'before=' + wB + ' after=' + wA + ' lbW=' + theme().lbW + ' css=' + getComputedStyle(document.documentElement).getPropertyValue('--lb-width'));
+
+    /* W17 宽度变化后宽内容仍正常适配：横向可滚、内容不溢出轨道 */
+    var body2 = document.getElementById('lbBody');
+    body2.scrollLeft = 0;
+    await sleep(80);
+    var ovf = body2.scrollWidth > body2.clientWidth;
+    body2.scrollLeft = 150;
+    await sleep(120);
+    ok('W17 宽度变化后横向滚动仍正常', ovf ? body2.scrollLeft > 0 : true,
+       'sw=' + body2.scrollWidth + ' cw=' + body2.clientWidth + ' sl=' + body2.scrollLeft + ' cardW=' + wOf(card()));
 
     // 拖拽结束 300ms 后，遮罩点击必须能正常关闭
     await sleep(400);

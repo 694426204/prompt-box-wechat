@@ -215,6 +215,20 @@
 - 拖拽结束的**设定宽度写入 `theme.lbW`**，随主题持久化，下次打开灯箱保持该宽度
 - 灯箱内的宽内容（Markdown 表格、代码块、宽图）在卡片内**横向滚动**，不撑破布局
 
+### 放大层滚动行为
+
+放大层正文（`.lb-body`）**同时承担横向与纵向滚动**，横向滚动条**常驻卡片底部**，向下滚动时不会随内容跑出视野。
+
+| 行为 | 说明 |
+|---|---|
+| 竖向滚动条 | **隐藏轨道**（内容仍可正常上下滚动），拖动边缘的窄条不再出现 |
+| 横向滚动条 | 常驻正文盒子底部，纵向滚动到任意位置都保持原位，随时可拖动 |
+| 宽表格 | 表格自身不再携带横向轨道，统一由正文承载，卡片调宽后自动重排适配 |
+
+- 实现上把横向滚动职责从嵌套的 `.md-table-wrap` **上提到 `.lb-body`**（原生滚动条无法 `position:sticky`）
+- 通过 `::-webkit-scrollbar` 分别控制两轴（`width:0` 隐藏竖向、`height:12px` 保留横向）；Firefox 降级为隐藏原生轨道，滚轮与触摸滚动不受影响
+- 作用域**仅限放大层**：聊天气泡内的 Markdown 表格仍保留各自独立的横向滚动条，行为不变
+
 ---
 
 ## 界面截图
@@ -327,8 +341,8 @@ npm test
 │   ├── build.mjs           # 零依赖构建脚本：复制产物 + 内容指纹 + 生成 404/_headers
 │   ├── serve.mjs           # 零依赖本地静态服务器：替代 npx serve，全程离线
 │   ├── test-markdown.mjs   # 零依赖回归测试：Markdown 引擎 89 项断言（npm test）
-│   ├── make-probe.mjs      # 生成 __probe.html：注入断言脚本，用 headless Chrome 验证拖拽调宽
-│   └── make-shots.mjs      # 生成 __shot1/2.html：用 headless Chrome 截图视觉验证
+│   ├── make-probe.mjs      # 生成 __probe.html：注入断言脚本，用 headless Chrome 验证拖拽调宽与滚动条行为
+│   └── make-shots.mjs      # 生成 __shot1/2/3.html：用 headless Chrome 截图视觉验证
 ├── 启动.bat                # Windows 一键启动：构建 + 起服务 + 自动开浏览器
 ├── demo/                   # 界面截图（README 引用，不进部署产物）
 ├── .github/workflows/
