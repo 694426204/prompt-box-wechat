@@ -414,12 +414,38 @@
 
   /* ---------------- 放大层目录（TOC） ----------------
      目录来源：放大正文里的 h1~h6 标题（层级严格按标签层级映射）。
-     最多展示 10 个锚点；无标题时直接隐藏大纲按钮。
+     最多展示 12 个锚点，且在全文标题里「均匀采样」而非取前 N 个：
+     长文档的上半与下半都能一键抵达，不会只导航得到前半篇。
+     无标题时直接隐藏大纲按钮。
      跳转：.lb-body 是唯一的滚动容器，滚动动作必须落在它身上；
      动画 340ms，结束后给落点标题加一次轻微高亮。 */
-  const LB_TOC_MAX = 10;          // 最多展示的锚点数
+  const LB_TOC_MAX = 12;          // 最多展示的锚点数
   const LB_TOC_SCROLL_MS = 340;   // 滚动动画时长（300~400ms）
   let lbTocTargets = [];
+
+  /* 全文均匀采样：在所有标题中等距取 LB_TOC_MAX 个，必含首尾标题。
+     取整后若下标重复，则向邻近未用下标让位，保证数量与覆盖度都不缩水。 */
+  function pickTocHeads(heads) {
+    const all = heads.map((h, i) => ({ el: h, idx: i }));
+    if (all.length <= LB_TOC_MAX) return all;
+    const step = (all.length - 1) / (LB_TOC_MAX - 1);
+    const used = new Set();
+    const picked = [];
+    for (let k = 0; k < LB_TOC_MAX; k++) {
+      let idx = Math.round(k * step);
+      if (used.has(idx)) {
+        for (let d = 1; d < all.length; d++) {
+          const a = idx - d, b = idx + d;
+          if (a >= 0 && !used.has(a)) { idx = a; break; }
+          if (b < all.length && !used.has(b)) { idx = b; break; }
+        }
+      }
+      used.add(idx);
+      picked.push(idx);
+    }
+    picked.sort((a, b) => a - b);   // 面板内保持文档顺序
+    return picked.map(i => all[i]);
+  }
 
   function buildToc() {
     const body = $('#lbBody');
@@ -440,18 +466,21 @@
     let minLevel = 6;
     heads.forEach(h => { minLevel = Math.min(minLevel, Number(h.tagName.slice(1))); });
 
-    heads.slice(0, LB_TOC_MAX).forEach((h, i) => {
+    const picked = pickTocHeads(heads);
+    picked.forEach((p, i) => {
+      const h = p.el;
       const lv = Number(h.tagName.slice(1));
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'toc-item';
-      item.dataset.idx = String(i);
+      item.dataset.idx = String(i);        // 目录项在面板中的序号（对应 lbTocTargets）
+      item.dataset.head = String(p.idx);   // 该项在全文标题中的原始下标（便于定位与排查）
       item.style.paddingLeft = (14 + (lv - minLevel) * 16) + 'px';
       const tag = document.createElement('span');
       tag.className = 'toc-lv';
       tag.textContent = 'H' + lv;
       item.appendChild(tag);
-      item.appendChild(document.createTextNode((h.textContent || '').trim() || ('章节 ' + (i + 1))));
+      item.appendChild(document.createTextNode((h.textContent || '').trim() || ('章节 ' + (p.idx + 1))));
       list.appendChild(item);
       lbTocTargets.push(h);
     });
@@ -459,7 +488,7 @@
     if (heads.length > LB_TOC_MAX) {
       const more = document.createElement('div');
       more.className = 'toc-more';
-      more.textContent = '仅显示前 ' + LB_TOC_MAX + ' 个标题（共 ' + heads.length + ' 个）';
+      more.textContent = '共 ' + heads.length + ' 个标题，已均匀展示 ' + LB_TOC_MAX + ' 个';
       list.appendChild(more);
     }
 

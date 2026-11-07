@@ -21,7 +21,8 @@ const seedScript = `<script>
     '长字段 | docker-compose-up-d-build-with-cache-and-log-follow | 启动全部服务并复用构建缓存 | 仅用于本地开发环境快速拉起整个依赖栈，生产环境请勿直接使用该命令'
   ].join('\\n');
   try { localStorage.removeItem('prompt-box-theme-v1'); } catch (e) {}
-  /* 探针标题文档：12 个标题（h1/h2/h3/h4 混合），正文足够长以便滚动 */
+  /* 探针标题文档：20 个标题（h1/h2/h3/h4 混合），超出目录上限 12 个，
+     用于验证「均匀采样」是否覆盖全文首尾与下半篇；正文足够长以便滚动 */
   var doc = [
     '# 探针主标题',
     '导语段落。',
@@ -50,7 +51,21 @@ const seedScript = `<script>
     '### 第四节子项乙',
     '正文十二。',
     '## 第五节',
-    '正文十三。'
+    '正文十三。',
+    '### 第五节子项',
+    '正文十四。',
+    '## 第六节',
+    '正文十五。',
+    '### 第六节子项',
+    '正文十六。',
+    '#### 第六节深层',
+    '正文十七。',
+    '## 第七节',
+    '正文十八。',
+    '### 第七节子项',
+    '正文十九。',
+    '## 第八节',
+    '正文二十。'
   ].join('\\n');
   localStorage.setItem('prompt-box-wechat-v1', JSON.stringify({
     sessions: [{ id: sid, name: '探针会话', icon: '💬' }],
@@ -264,7 +279,48 @@ const probeScript = `<script>
     ok('T5 有标题时大纲按钮显示', tocBtn.classList.contains('show'));
 
     var items = Array.prototype.slice.call(tocList.querySelectorAll('.toc-item'));
-    ok('T6 目录项上限 10 条', items.length === 10, 'n=' + items.length);
+    ok('T6 目录项上限 12 条', items.length === 12, 'n=' + items.length);
+
+    // 目录项 → 正文标题下标的映射（按标题文本匹配，不依赖内部索引实现）
+    var bodyAll = document.getElementById('lbBody');
+    var headElsAll = Array.prototype.slice.call(bodyAll.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+    function headIndexOfItem(item) {
+      var raw = (item.textContent || '').replace(/^H\\d+/, '').trim();
+      for (var hi = 0; hi < headElsAll.length; hi++) {
+        if ((headElsAll[hi].textContent || '').trim() === raw) return hi;
+      }
+      return -1;
+    }
+    var pickedIdx = items.map(headIndexOfItem);
+    log.push('INFO 全文标题 ' + headElsAll.length + ' 个，采样下标 ' + pickedIdx.join(','));
+
+    // T6b 均匀采样必须覆盖全文首尾
+    ok('T6b 采样覆盖全文第一个标题',
+       pickedIdx.length > 0 && pickedIdx[0] === 0,
+       'first=' + pickedIdx[0]);
+    ok('T6c 采样覆盖全文最后一个标题',
+       pickedIdx.length > 0 && pickedIdx[pickedIdx.length - 1] === headElsAll.length - 1,
+       'last=' + pickedIdx[pickedIdx.length - 1] + ' total=' + headElsAll.length);
+
+    // T6d 目录项保持文档顺序（对应标题下标递增）
+    var orderOk = true;
+    for (var oi = 1; oi < pickedIdx.length; oi++) {
+      if (pickedIdx[oi] <= pickedIdx[oi - 1]) { orderOk = false; break; }
+    }
+    ok('T6d 目录项按文档顺序排列', orderOk, pickedIdx.join(','));
+
+    // T6e 采样点须铺满全文：下半篇至少有两个可达锚点
+    var lowerHalf = pickedIdx.filter(function (x) { return x >= Math.floor(headElsAll.length / 2); });
+    ok('T6e 下半篇文档有锚点可达',
+       lowerHalf.length >= 2,
+       'lower=' + lowerHalf.length + ' picked=' + pickedIdx.join(','));
+
+    // T6f 采样间隔均匀：相邻间距的最大值与最小值之差不超过 1
+    var gaps = [];
+    for (var gi = 1; gi < pickedIdx.length; gi++) gaps.push(pickedIdx[gi] - pickedIdx[gi - 1]);
+    var gapMin = Math.min.apply(null, gaps), gapMax = Math.max.apply(null, gaps);
+    ok('T6f 采样间隔均匀', gapMax - gapMin <= 1,
+       'gaps=' + gaps.join(',') + ' min=' + gapMin + ' max=' + gapMax);
 
     // T7 层级缩进严格对应标题标签层级：H1 最浅，逐级加 16px
     var lvTags = items.map(function (it) { return it.querySelector('.toc-lv').textContent; });
@@ -286,9 +342,9 @@ const probeScript = `<script>
     ok('T8 首个目录项为 H1 且缩进最浅', lvTags[0] === 'H1' && pads[0] === 14,
        'lv=' + lvTags[0] + ' pad=' + pads[0]);
 
-    // T9 超出 10 条时有提示
+    // T9 超出上限时给出提示（并说明是均匀采样而非截断）
     var more = tocList.querySelector('.toc-more');
-    ok('T9 超出上限时给出提示', !!more && /10/.test(more.textContent),
+    ok('T9 超出上限时给出提示', !!more && /12/.test(more.textContent) && /均匀/.test(more.textContent),
        'more=' + (more ? more.textContent : 'null'));
 
     // T10 面板初始关闭且在视口右侧之外
@@ -400,7 +456,8 @@ const probeScript = `<script>
     target.click();
     await sleep(600);   // 340ms 动画 + 余量
     var headEls = Array.prototype.slice.call(bodyEl.querySelectorAll('h1,h2,h3,h4,h5,h6'));
-    var idx = parseInt(target.dataset.idx, 10);
+    // data-head 是该目录项在全文标题中的原始下标（目录项序号 idx 是面板内序号）
+    var idx = parseInt(target.dataset.head, 10);
     var expectHead = headEls[idx];
     var headRect = expectHead.getBoundingClientRect();
     var bodyRect = bodyEl.getBoundingClientRect();
@@ -421,7 +478,7 @@ const probeScript = `<script>
     await sleep(60);
     lastItem.click();
     await sleep(600);
-    var lastIdx = parseInt(lastItem.dataset.idx, 10);
+    var lastIdx = parseInt(lastItem.dataset.head, 10);
     var lastHead = headEls[lastIdx];
     var lh = lastHead.getBoundingClientRect();
     var br = bodyEl.getBoundingClientRect();
@@ -510,7 +567,7 @@ const mobileScript = `<script>
     var btnR = tocBtn.getBoundingClientRect();
     ok('M4 按钮完整落在视口内', btnR.left >= 0 && btnR.right <= vw + 1 && btnR.top >= 0 && btnR.bottom <= vh + 1,
        'l=' + btnR.left.toFixed(1) + ' r=' + btnR.right.toFixed(1) + ' t=' + btnR.top.toFixed(1) + ' b=' + btnR.bottom.toFixed(1));
-    ok('M5 目录项数量为 10', tocList.querySelectorAll('.toc-item').length === 10,
+    ok('M5 目录项数量为 12', tocList.querySelectorAll('.toc-item').length === 12,
        'n=' + tocList.querySelectorAll('.toc-item').length);
 
     // 窄屏下面板应占 86vw（不超过 320px 的上限由视口宽决定）
@@ -549,9 +606,10 @@ const mobileScript = `<script>
     items[4].click();
     await sleep(600);
     var headEls = Array.prototype.slice.call(bodyEl.querySelectorAll('h1,h2,h3,h4,h5,h6'));
-    var off = Math.abs(headEls[4].getBoundingClientRect().top - bodyEl.getBoundingClientRect().top - 12);
+    var mHeadIdx = parseInt(items[4].dataset.head, 10);
+    var off = Math.abs(headEls[mHeadIdx].getBoundingClientRect().top - bodyEl.getBoundingClientRect().top - 12);
     ok('M10 窄屏跳转定位到目标标题', off < 6, 'off=' + off.toFixed(1));
-    ok('M11 落点标题有高亮反馈', headEls[4].classList.contains('toc-hit'));
+    ok('M11 落点标题有高亮反馈', headEls[mHeadIdx].classList.contains('toc-hit'));
 
     // 遮罩点击先收面板
     document.getElementById('lbMask').click();

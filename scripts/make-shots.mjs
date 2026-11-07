@@ -61,7 +61,17 @@ const seed = `<script>
     '### 3.1 第一阶段',
     '第一阶段需要完成的内容。' + filler + filler,
     '### 3.2 第二阶段',
-    '第二阶段需要完成的内容。' + filler + filler
+    '第二阶段需要完成的内容。' + filler + filler,
+    '## 四、风险与对策',
+    '列出主要风险点及应对方案。' + filler + filler,
+    '### 4.1 技术风险',
+    '说明技术层面的不确定因素。' + filler + filler,
+    '### 4.2 进度风险',
+    '说明排期层面的不确定因素。' + filler + filler,
+    '## 五、附录',
+    '补充说明与术语表。' + filler + filler,
+    '### 5.1 术语表',
+    '列出关键缩写与全称。' + filler + filler
   ].join('\\n');
   localStorage.setItem('prompt-box-wechat-v1', JSON.stringify({
     sessions: [{ id: sid, name: '探针会话', icon: '💬' }],
