@@ -356,8 +356,8 @@ const probeScript = `<script>
     // T25 胶囊形态：细长、圆角呈胶囊状
     var capH = tocBtn.offsetHeight, capW = tocBtn.offsetWidth;
     var capRadius = parseFloat(getComputedStyle(tocBtn).borderTopLeftRadius) || 0;
-    ok('T25 胶囊形态正确（26×110 上下半圆）',
-       capH >= 96 && capH <= 110 && Math.abs(capW - 26) <= 1 && capRadius >= capH / 2,
+    ok('T25 胶囊形态正确（20×110 上下半圆）',
+       capH >= 96 && capH <= 110 && Math.abs(capW - 20) <= 1 && capRadius >= capH / 2,
        'h=' + capH + ' w=' + capW + ' r=' + capRadius);
 
     // T26 不遮挡其他标志模块：头部关闭键、底部操作栏、边缘拖拽热区
@@ -376,10 +376,10 @@ const probeScript = `<script>
     ok('T26c 胶囊不进入卡片边缘拖拽热区', !overlaps(btnR3, hotZone),
        'btnR=' + btnR3.right.toFixed(1) + ' cardR=' + cardRc3.right.toFixed(1));
 
-    // T24 汉堡图标尺寸不小于 15px（防止被缩回不可辨的「三个点」）
+    // T24 汉堡图标尺寸不小于 13px（防止被缩回不可辨的「三个点」）
     var icoEl = tocBtn.querySelector('.ico');
-    ok('T24 汉堡图标尺寸不小于 15px',
-       !!icoEl && icoEl.getBoundingClientRect().width >= 14.5,
+    ok('T24 汉堡图标尺寸不小于 13px',
+       !!icoEl && icoEl.getBoundingClientRect().width >= 13.5,
        'w=' + (icoEl ? icoEl.getBoundingClientRect().width : 0));
 
     // T15b 面板宽度公式：min(320px, 86vw)，不同屏宽下保持合理比例

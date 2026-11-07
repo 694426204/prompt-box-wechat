@@ -81,6 +81,10 @@
   --lb-body-bg:#fafafa;
   --lb-mask:rgba(0,0,0,.55);
   --lb-card-shadow:0 12px 48px rgba(0,0,0,.3);
+  /* 大纲开关（圆柱体）专用：本体底色 + 两侧暗边（圆柱弧面）+ 中间高光（受光面） */
+  --lb-cap-bg:#e3e3e3;
+  --lb-cap-edge:rgba(0,0,0,.20);
+  --lb-cap-hi:rgba(255,255,255,.95);
 
   --ctx-bg:#ffffff;
   --ctx-text:#333333;
@@ -168,6 +172,9 @@
   --lb-body-bg:#1f1f23;
   --lb-mask:rgba(0,0,0,.66);
   --lb-card-shadow:0 12px 48px rgba(0,0,0,.6);
+  --lb-cap-bg:#33333a;
+  --lb-cap-edge:rgba(0,0,0,.55);
+  --lb-cap-hi:rgba(255,255,255,.13);
 
   --ctx-bg:#242428;
   --ctx-text:#d5d5da;
@@ -251,6 +258,9 @@
   --lb-body-bg:#eef3e6;
   --lb-mask:rgba(35,45,30,.5);
   --lb-card-shadow:0 12px 48px rgba(35,45,30,.28);
+  --lb-cap-bg:#e9f0e0;
+  --lb-cap-edge:rgba(47,58,43,.14);
+  --lb-cap-hi:rgba(255,255,255,.80);
 
   --ctx-bg:#f4f7ee;
   --ctx-text:#2f3a2b;
@@ -336,6 +346,9 @@
   --lb-body-bg:#0f141a;
   --lb-mask:rgba(1,4,9,.75);
   --lb-card-shadow:0 12px 48px rgba(0,0,0,.7);
+  --lb-cap-bg:#1d232c;
+  --lb-cap-edge:rgba(0,0,0,.55);
+  --lb-cap-hi:rgba(255,255,255,.09);
 
   --ctx-bg:#161b22;
   --ctx-text:#c9d1d9;
@@ -421,6 +434,9 @@
   --lb-body-bg:#f5ecdd;
   --lb-mask:rgba(60,45,30,.5);
   --lb-card-shadow:0 12px 48px rgba(90,65,40,.32);
+  --lb-cap-bg:#efe3d0;
+  --lb-cap-edge:rgba(90,65,40,.16);
+  --lb-cap-hi:rgba(255,255,255,.78);
 
   --ctx-bg:#faf4ea;
   --ctx-text:#4a3f31;
@@ -754,24 +770,51 @@ body.lb-resizing,body.lb-resizing *{cursor:ew-resize !important;user-select:none
   position:absolute;z-index:6;
   right:12px;                 /* 相对卡片内侧留 12px，不压边缘拖拽热区 */
   top:0;                      /* 由 JS 按正文区矩形写入 */
-  width:26px;height:110px;
+  width:20px;height:110px;
   display:none;align-items:center;justify-content:center;
-  border:1px solid var(--line);
+  padding:0;
+  /* 默认描边透明：不与正文争视线，靠圆柱弧面自明形体 */
+  border:1px solid transparent;
   border-radius:999px;        /* 胶囊：上下两端半圆 */
-  background:var(--lb-bg);color:var(--text-sub);cursor:pointer;
-  /* 极轻外投影表现圆柱厚度；内高光做出圆润感 */
-  box-shadow:0 1px 6px rgba(0,0,0,.10),inset 0 0 6px rgba(0,0,0,.03);
-  transition:color .15s,background .15s,border-color .15s,width .2s,height .2s;
+  /* 圆柱弧面：底色 --lb-cap-bg，两侧暗边（--lb-cap-edge）夹一道中间受光面（--lb-cap-hi） */
+  background-image:
+    linear-gradient(90deg,var(--lb-cap-edge) 0%,rgba(0,0,0,0) 20%,var(--lb-cap-hi) 42%,var(--lb-cap-hi) 60%,rgba(0,0,0,0) 80%,var(--lb-cap-edge) 100%),
+    linear-gradient(var(--lb-cap-bg),var(--lb-cap-bg));
+  color:var(--text-sub);       /* 图标默认偏淡，正文仍是主角 */
+  cursor:pointer;
+  /* 外投影表现圆柱厚度；内阴影压出边缘弧度 */
+  box-shadow:0 2px 7px rgba(0,0,0,.14),inset 0 0 0 1px rgba(0,0,0,.02);
+  transition:color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .12s ease,width .2s,height .2s;
 }
+/* 悬停 / 展开时浮现的底色（用 accent 染一层，不改主体配色） */
+.lb-toc-btn::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;
+  background:var(--accent);opacity:0;pointer-events:none;
+  transition:opacity .18s ease;
+}
+.lb-toc-btn>*{position:relative;z-index:1;}
 .lb-toc-btn.show{display:flex;}
-.lb-toc-btn:hover{color:var(--accent);border-color:var(--accent);}
+.lb-toc-btn:hover{
+  color:var(--accent);border-color:var(--accent);
+  transform:scale(1.06);       /* 悬停时微微胀开，给出"可按"的实体感（不改变占位宽度） */
+  box-shadow:0 2px 10px rgba(0,0,0,.14);
+}
+.lb-toc-btn:hover::before{opacity:.12;}
+.lb-toc-btn:active{transform:scale(.96);}
 .lb-toc-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-.lb-toc-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);}
-.lb-toc-btn .ico{width:16px;height:16px;}
+/* 展开态：accent 描边 + 更浓的染底，与闭合态一眼可辨 */
+.lb-toc-btn[aria-expanded="true"]{
+  color:var(--accent);border-color:var(--accent);
+  box-shadow:0 2px 12px rgba(0,0,0,.16);
+}
+.lb-toc-btn[aria-expanded="true"]::before{opacity:.18;}
+.lb-toc-btn .ico{width:14px;height:14px;}
 /* 移动端：面板展开后按钮滑入面板头部左侧，收为圆角小块充当关闭开关 */
 .lb-toc-btn--panel{
   position:relative;right:auto;top:auto;
   width:26px;height:26px;border-radius:13px;
+  border-color:var(--line);
+  background:var(--lb-bg);
   box-shadow:none;flex:none;
 }
 .lb-toc-btn--panel .ico{width:14px;height:14px;}
