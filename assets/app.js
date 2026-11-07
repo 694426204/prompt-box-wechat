@@ -365,6 +365,7 @@
       lbBody.classList.remove('md');
       lbBody.textContent = m.content;
     }
+    buildToc();
 
     const acts = $$('#lightbox .act');
     acts.forEach(a => a.classList.remove('on'));
@@ -408,7 +409,229 @@
     $('#lightbox').classList.remove('wide');
     lightboxId = null;
     $('#lbEdit').hidden = true;
+    closeToc();
   }
+
+  /* ---------------- 放大层目录（TOC） ----------------
+     目录来源：放大正文里的 h1~h6 标题（层级严格按标签层级映射）。
+     最多展示 10 个锚点；无标题时直接隐藏大纲按钮。
+     跳转：.lb-body 是唯一的滚动容器，滚动动作必须落在它身上；
+     动画 340ms，结束后给落点标题加一次轻微高亮。 */
+  const LB_TOC_MAX = 10;          // 最多展示的锚点数
+  const LB_TOC_SCROLL_MS = 340;   // 滚动动画时长（300~400ms）
+  let lbTocTargets = [];
+
+  function buildToc() {
+    const body = $('#lbBody');
+    const btn = $('#lbTocBtn');
+    const list = $('#lbTocList');
+    const heads = Array.prototype.slice.call(body.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+    lbTocTargets = [];
+    list.innerHTML = '';
+
+    if (!heads.length) {
+      btn.classList.remove('show');
+      btn.setAttribute('aria-expanded', 'false');
+      closeToc();
+      return;
+    }
+
+    // 缩进基准取全文最小标题层级，保证任意 h2/h3 文档也不会整体右移
+    let minLevel = 6;
+    heads.forEach(h => { minLevel = Math.min(minLevel, Number(h.tagName.slice(1))); });
+
+    heads.slice(0, LB_TOC_MAX).forEach((h, i) => {
+      const lv = Number(h.tagName.slice(1));
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'toc-item';
+      item.dataset.idx = String(i);
+      item.style.paddingLeft = (14 + (lv - minLevel) * 16) + 'px';
+      const tag = document.createElement('span');
+      tag.className = 'toc-lv';
+      tag.textContent = 'H' + lv;
+      item.appendChild(tag);
+      item.appendChild(document.createTextNode((h.textContent || '').trim() || ('章节 ' + (i + 1))));
+      list.appendChild(item);
+      lbTocTargets.push(h);
+    });
+
+    if (heads.length > LB_TOC_MAX) {
+      const more = document.createElement('div');
+      more.className = 'toc-more';
+      more.textContent = '仅显示前 ' + LB_TOC_MAX + ' 个标题（共 ' + heads.length + ' 个）';
+      list.appendChild(more);
+    }
+
+    btn.classList.add('show');
+    syncTocBtn(true);
+    // 卡片入场动画带 scale(.98)，动画结束后几何才是最终值，补一次校准
+    setTimeout(syncTocBtn, 260);
+  }
+
+  /* 大纲开关定位：卡片内侧右缘的竖向胶囊（圆柱体）。
+     按钮是 .lb-card 的子元素，横向位置交给 CSS 的 right:12px，
+     卡片让位左移时它自动跟随，无需 JS 计算；
+     JS 只负责垂直位置：贴着正文区（.lb-body）垂直居中，
+     高度受正文可用高度钳制，避免压到头部关闭键或底部操作栏。 */
+  const LB_TOC_CAP_H = 110;       // 胶囊高度（与 CSS 一致）
+  const LB_TOC_CAP_GAP = 16;      // 卡片右缘与面板左缘的目标间隙
+  const LB_TOC_MOBILE_MAX = 820;  // 与 CSS 断点一致
+
+  function isTocMobile() {
+    return !!(window.matchMedia && window.matchMedia('(max-width:' + LB_TOC_MOBILE_MAX + 'px)').matches);
+  }
+
+  /* noAnim：首次显示时按钮刚从 display:none 变为可见，
+     首帧关掉过渡避免高度/位置跳变。 */
+  function syncTocBtn(noAnim) {
+    const btn = $('#lbTocBtn');
+    const card = lbDragCard();
+    if (!btn || !card) return;
+    if (!btn.classList.contains('show')) return;
+    // 移动端展开后按钮已移入面板头，形态交给 flex 布局，不再定位
+    if (btn.classList.contains('lb-toc-btn--panel')) return;
+    const body = $('#lbBody');
+    if (!body) return;
+    const br = body.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    if (!br.height) return;
+    // clientHeight 不含底部横向滚动条占位，正文可视区以它为准，胶囊便不会压住滚动条
+    const contentH = body.clientHeight || br.height;
+    const contentTop = br.top;
+    // 正文区可用高度决定胶囊实际高度，正文过短时也不会压到头部/底部
+    const h = Math.max(48, Math.min(LB_TOC_CAP_H, contentH - 16));
+    const top = contentTop - cr.top + (contentH - h) / 2;
+    if (noAnim) {
+      btn.style.transition = 'none';
+      btn.style.height = h + 'px';
+      btn.style.top = top + 'px';
+      void btn.offsetWidth;               // 强制回流，让下一帧恢复过渡
+      btn.style.transition = '';
+      return;
+    }
+    btn.style.height = h + 'px';
+    btn.style.top = top + 'px';
+  }
+
+  /* 卡片让位：面板展开时卡片整体左移，避免被面板压住。
+     用 relative left（--lb-shift）而非 transform，
+     以免与拖拽调宽写入的 card.style.transform 互相覆盖；
+     拖拽锚点计算里 shift 会相互抵消，拖拽行为不受影响。 */
+  function applyTocShift() {
+    const card = lbDragCard();
+    const toc = $('#lbToc');
+    if (!card || !toc) return;
+    const vw = document.documentElement.clientWidth;
+    if (isTocMobile() || !toc.classList.contains('open')) {
+      card.style.setProperty('--lb-shift', '0px');
+      return;
+    }
+    const panelW = toc.offsetWidth;              // min(320px,86vw)
+    const box = lbContainerBox();
+    const cw = card.offsetWidth;
+    // 卡片在放大层内容盒里居中，取未位移时的基准左右缘
+    const baseLeft = box.left + (box.right - box.left - cw) / 2;
+    const baseRight = baseLeft + cw;
+    const targetRight = vw - panelW - LB_TOC_CAP_GAP;
+    let shift = Math.max(0, baseRight - targetRight);       // 需要左移的量
+    shift = Math.min(shift, Math.max(0, baseLeft - 24));    // 不把卡片推出视口
+    // left 为正值时元素右移，故让位取负值
+    card.style.setProperty('--lb-shift', (-shift) + 'px');
+  }
+
+  /* 按钮宿主：桌面端常驻卡片内侧；窄屏且面板展开时移入面板头部左侧，
+     收为圆角小块充当面板的关闭开关（窄屏没有让位空间）。 */
+  function syncTocHost() {
+    const btn = $('#lbTocBtn');
+    const toc = $('#lbToc');
+    const card = lbDragCard();
+    if (!btn || !toc || !card) return;
+    const wantPanel = isTocMobile() && toc.classList.contains('open');
+    const head = toc.querySelector('.lb-toc-head');
+    if (wantPanel && head) {
+      if (btn.parentNode !== head) head.insertBefore(btn, head.firstChild);
+      btn.classList.add('lb-toc-btn--panel');
+    } else {
+      if (btn.parentNode !== card) card.appendChild(btn);
+      btn.classList.remove('lb-toc-btn--panel');
+    }
+    btn.style.top = '';
+    btn.style.height = '';
+  }
+
+  function openToc() {
+    const toc = $('#lbToc');
+    const btn = $('#lbTocBtn');
+    if (!toc || !btn) return;
+    toc.classList.add('open');
+    toc.setAttribute('aria-hidden', 'false');
+    $('#lightbox').classList.add('toc-open');
+    btn.setAttribute('aria-expanded', 'true');
+    syncTocHost();
+    applyTocShift();
+    syncTocBtn();
+  }
+
+  function closeToc() {
+    const toc = $('#lbToc');
+    const btn = $('#lbTocBtn');
+    if (!toc) return;
+    toc.classList.remove('open');
+    toc.setAttribute('aria-hidden', 'true');
+    $('#lightbox').classList.remove('toc-open');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    syncTocHost();
+    const card = lbDragCard();
+    if (card) card.style.setProperty('--lb-shift', '0px');
+    syncTocBtn();
+  }
+
+  // 落点标题高亮：重启动画后于 1.5s 撤除
+  function flashTocHit(el) {
+    el.classList.remove('toc-hit');
+    void el.offsetWidth;
+    el.classList.add('toc-hit');
+    setTimeout(() => el.classList.remove('toc-hit'), 1500);
+  }
+
+  // 在 .lb-body 内平滑滚动到指定标题（动画 340ms，结束后高亮）
+  function scrollLbTo(el) {
+    const body = $('#lbBody');
+    const max = body.scrollHeight - body.clientHeight;
+    const to = Math.max(0, Math.min(
+      body.scrollTop + (el.getBoundingClientRect().top - body.getBoundingClientRect().top) - 12,
+      max
+    ));
+    const from = body.scrollTop;
+    const dist = to - from;
+    const t0 = Date.now();
+    if (Math.abs(dist) < 1) { flashTocHit(el); return; }
+    const step = () => {
+      const p = Math.min(1, (Date.now() - t0) / LB_TOC_SCROLL_MS);
+      const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      body.scrollTop = from + dist * e;
+      if (p < 1) setTimeout(step, 16);
+      else flashTocHit(el);
+    };
+    step();
+  }
+
+  $('#lbTocBtn').addEventListener('click', () => {
+    const toc = $('#lbToc');
+    if (toc.classList.contains('open')) closeToc();
+    else openToc();
+  });
+  $('#lbTocClose').addEventListener('click', closeToc);
+  $('#lbTocList').addEventListener('click', e => {
+    const item = e.target.closest('.toc-item');
+    if (!item) return;
+    const target = lbTocTargets[Number(item.dataset.idx)];
+    if (!target) return;
+    $$('#lbTocList .toc-item').forEach(x => x.classList.remove('active'));
+    item.classList.add('active');
+    scrollLbTo(target);
+  });
 
   /* ---------------- 右键菜单 ---------------- */
   let ctxTarget = null;
@@ -504,6 +727,8 @@
     // 刚在卡片边缘拖过宽度时，pointerup 之后可能还会落一次 click 到遮罩上，
     // 这里只吞掉「拖拽结束后 300ms 内」的这一次误触，之后的点击必须正常关闭。
     if (lbDrag.moved && Date.now() - (lbDrag.endTime || 0) < 300) return;
+    // 目录面板开着时，点遮罩先收面板，不直接关放大层
+    if ($('#lbToc').classList.contains('open')) { closeToc(); return; }
     closeLightbox();
   });
 
@@ -774,7 +999,9 @@
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (!$('#lightbox').hidden) closeLightbox();
+      // 目录面板开着时，Esc 先收面板，再考虑关放大层
+      if ($('#lbToc').classList.contains('open')) closeToc();
+      else if (!$('#lightbox').hidden) closeLightbox();
       $('#ctxmenu').hidden = true;
     }
   });
@@ -995,6 +1222,9 @@
       // 显式告知上限来源：屏幕宽度的 2/3，避免"标准宽度 820 却只显示 810"的困惑
       val.title = '上限 ' + cap + 'px（屏幕宽度的 2/3）';
     }
+
+    // 宽度变化会改变卡片的居中基准，TOC 展开时需重算让位量
+    if (!lbDrag.on) applyTocShift();
   }
 
   /* ---------------- 放大层边缘拖拽调宽 ----------------
@@ -1074,6 +1304,7 @@
         tx = Math.min(tx, box.right - rect.right);
       }
       card.style.transform = 'translateX(' + tx.toFixed(2) + 'px)';
+      syncTocBtn();
     }
     if (Math.abs(dx) > 2) lbDrag.moved = true;
     lbDragShow(e);
@@ -1091,6 +1322,9 @@
     lbDrag.endTime = Date.now();
     // 松手后清掉拖拽期间的对侧锚定偏移，让卡片重新居中
     applyLbWidth();
+    // 宽度变了，卡片的居中基准也变了，重算 TOC 让位量
+    applyTocShift();
+    syncTocBtn();
     // 松手落盘：保存用户设定的宽度，后续打开该模块保持此宽度
     saveTheme();
   }
@@ -1191,7 +1425,12 @@
   });
 
   // 视口变化时上限 cap 随之变化，需重算（展开状态与设定值均保留）
-  window.addEventListener('resize', () => { applyLbWidth(); });
+  window.addEventListener('resize', () => {
+    applyLbWidth();
+    syncTocHost();     // 跨越 820px 断点时按钮宿主需切换
+    applyTocShift();
+    syncTocBtn();
+  });
 
   loadTheme();
   applyTheme();

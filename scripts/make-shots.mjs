@@ -11,7 +11,7 @@ const seed = `<script>
    因此截图页关闭宽度过渡（仅影响截图，不改产品代码） */
 (function(){
   var st = document.createElement('style');
-  st.textContent = '.lb-card{transition:none!important}';
+  st.textContent = '.lb-card{transition:none!important}.lb-toc{transition:none!important}.lb-toc-btn{transition:none!important}';
   document.head.appendChild(st);
   var now = new Date().toISOString();
   var sid = 'probe-s1';
@@ -36,11 +36,39 @@ const seed = `<script>
     '监控 | promtail -config.file.yml | 启动日志采集代理 | 采集节点日志上报监控平台时使用'
   ].join('\\n');
   try { localStorage.removeItem('prompt-box-theme-v1'); } catch (e) {}
+  /* 带层级标题的文档消息：用于 TOC 面板截图（正文需足够长，
+     否则正文滚到底后章节无法停到顶部，截不出理想效果） */
+  var filler = '这一段是正文内容，用于把文档撑到足够长，保证点击目录项后目标章节能够滚动到正文顶部停住，从而完整呈现锚点定位效果。';
+  var doc = [
+    '# 产品需求文档',
+    '这是文档导语段落，用于占位说明整体内容范围与背景动机。' + filler + filler,
+    '## 一、背景与目标',
+    '说明为什么需要这份文档，以及要解决的核心问题是什么。' + filler + filler,
+    '### 1.1 现状梳理',
+    '罗列当前实现方式与其中的限制条件。' + filler + filler,
+    '### 1.2 目标拆解',
+    '把整体目标拆成可以分别交付的子项。' + filler + filler,
+    '## 二、方案设计',
+    '描述整体技术路线与关键取舍。' + filler + filler,
+    '### 2.1 核心流程',
+    '按步骤描述主链路。' + filler + filler,
+    '#### 2.1.1 边界处理',
+    '说明异常分支的兜底策略。' + filler + filler,
+    '### 2.2 数据结构',
+    '列出主要字段与含义。' + filler + filler,
+    '## 三、里程碑',
+    '列出分阶段交付计划。' + filler + filler,
+    '### 3.1 第一阶段',
+    '第一阶段需要完成的内容。' + filler + filler,
+    '### 3.2 第二阶段',
+    '第二阶段需要完成的内容。' + filler + filler
+  ].join('\\n');
   localStorage.setItem('prompt-box-wechat-v1', JSON.stringify({
     sessions: [{ id: sid, name: '探针会话', icon: '💬' }],
     messages: [
       { id: 'probe-m1', sessionId: sid, title: '速查表', content: table, side: 'you', createdAt: now, fmt: 'md' },
-      { id: 'probe-m2', sessionId: sid, title: '短消息', content: '你好', side: 'me', createdAt: now }
+      { id: 'probe-m2', sessionId: sid, title: '短消息', content: '你好', side: 'me', createdAt: now },
+      { id: 'probe-m3', sessionId: sid, title: '产品需求文档', content: doc, side: 'you', createdAt: now, fmt: 'md' }
     ],
     pins: [], favs: {}, currentSessionId: sid
   }));
@@ -61,6 +89,12 @@ const OPEN_HELPER = `function openLightbox(){
   var tb = null;
   for (var i=0;i<bubbles.length;i++){ if(bubbles[i].querySelector('.md-table-wrap')){ tb=bubbles[i]; break; } }
   if(tb) tb.click();
+}`;
+
+/* 打开带标题的文档消息（TOC 场景用） */
+const OPEN_DOC_HELPER = `function openDocLightbox(){
+  var b = document.querySelector('.bubble[data-id="probe-m3"]');
+  if(b) b.click();
 }`;
 
 /* 场景1：灯箱打开（标准宽度），右侧无竖条，底部有横条 */
@@ -125,6 +159,96 @@ ${OPEN_HELPER}
 </script>
 `;
 
+/* 场景4：TOC 目录面板展开（层级缩进可见 + 卡片左移让位、胶囊按钮原地不动） */
+const shot4 = `<script>
+${OPEN_DOC_HELPER}
+(function(){
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      openDocLightbox();
+      setTimeout(function(){
+        document.getElementById('lbTocBtn').click();
+        setTimeout(function(){ document.title='SHOT4_READY'; }, 500);
+      }, 700);
+    }, 400);
+  });
+})();
+</script>
+`;
+
+/* 场景5：展开目录面板并点击目录项，展示滚动到章节 + 当前项高亮 */
+const shot5 = `<script>
+${OPEN_DOC_HELPER}
+(function(){
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      openDocLightbox();
+      setTimeout(function(){
+        document.getElementById('lbTocBtn').click();
+        setTimeout(function(){
+          var items = document.querySelectorAll('#lbTocList .toc-item');
+          if (items[5]) items[5].click();
+          setTimeout(function(){
+            var b = document.getElementById('lbBody');
+            var heads = b.querySelectorAll('h1,h2,h3,h4,h5,h6');
+            var t = heads[5].getBoundingClientRect();
+            var bb = b.getBoundingClientRect();
+            /* 落点诊断写进隐藏节点，title 只做就绪标记 */
+            var d = document.createElement('div');
+            d.id = 'shot5Diag';
+            d.style.display = 'none';
+            d.textContent = 'off=' + (t.top - bb.top).toFixed(1) +
+              ' st=' + b.scrollTop + ' max=' + (b.scrollHeight - b.clientHeight) +
+              ' txt=' + heads[5].textContent;
+            document.body.appendChild(d);
+            document.title = 'SHOT5_READY';
+          }, 900);
+        }, 500);
+      }, 700);
+    }, 400);
+  });
+})();
+</script>
+`;
+
+/* 场景7：放大态大纲开关特写（闭合态：卡片内侧右缘的竖向胶囊）
+   主题由 URL 查询参数 ?theme=dark 指定，便于一次拍齐五套主题 */
+const shot7 = `<script>
+${OPEN_DOC_HELPER}
+(function(){
+  var m = /[?&]theme=([a-z]+)/.exec(location.search);
+  var th = m ? m[1] : 'day';
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      document.documentElement.setAttribute('data-theme', th);
+      openDocLightbox();
+      setTimeout(function(){
+        document.title='SHOT7_READY';
+      }, 900);
+    }, 400);
+  });
+})();
+</script>
+`;
+
+/* 场景8：窄屏（≤820px）下 TOC 面板展开，开关收为面板头部左侧的圆角小块
+   需以 390x844 视口打开 */
+const shot8 = `<script>
+${OPEN_DOC_HELPER}
+(function(){
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      openDocLightbox();
+      setTimeout(function(){
+        document.getElementById('lbTocBtn').click();
+        setTimeout(function(){ document.title='SHOT8_READY'; }, 500);
+      }, 700);
+    }, 400);
+  });
+})();
+</script>
+`;
+
 function build(file, extra) {
   let out = html.replace('<script src="data/seed-prompts.js"></script>',
     '<script src="data/seed-prompts.js"></script>\n' + seed);
@@ -136,3 +260,7 @@ function build(file, extra) {
 build('__shot1.html', shot1);
 build('__shot2.html', shot2);
 build('__shot3.html', shot3);
+build('__shot4.html', shot4);
+build('__shot5.html', shot5);
+build('__shot7.html', shot7);
+build('__shot8.html', shot8);

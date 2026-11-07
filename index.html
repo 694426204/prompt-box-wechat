@@ -162,9 +162,24 @@
         </div>
       </div>
     </footer>
+    <!-- 竖向大纲开关：卡片内侧右缘的胶囊（圆柱体），汉堡图标为 TOC 目录开关 -->
+    <button class="lb-toc-btn" id="lbTocBtn" type="button" title="目录" aria-label="打开文档目录" aria-expanded="false">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
   </div>
   <!-- 拖拽时的实时宽度提示 -->
   <div class="lb-width-hint" id="lbWidthHint" hidden></div>
+
+  <!-- 目录面板：从页面右侧滑出 -->
+  <aside class="lb-toc" id="lbToc" aria-label="文档目录" aria-hidden="true">
+    <header class="lb-toc-head">
+      <span class="lb-toc-title">目录</span>
+      <button class="icon-btn" id="lbTocClose" type="button" title="关闭目录" aria-label="关闭目录">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <nav class="lb-toc-list" id="lbTocList"></nav>
+  </aside>
 </div>
 
 <!-- ============ 右键菜单 ============ -->

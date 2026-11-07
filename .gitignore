@@ -6,5 +6,6 @@ dist/
 .wrangler/
 __probe*.html
 __shot*.html
+__shot*.png
 __probeout.html
 shots/

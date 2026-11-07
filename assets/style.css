@@ -644,7 +644,9 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
 /* ---------- 放大层 ---------- */
 /* 默认：居中卡片（单击气泡）；wide：半全屏（双击气泡） */
 .lightbox{
-  position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:40px 24px;
+  /* z-index 需高于 .chat-head(110)，否则应用顶栏会压在灯箱之上，
+     把放大层右侧的 TOC 面板顶栏遮掉 */
+  position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:40px 24px;
 }
 .lb-mask{position:absolute;inset:0;background:var(--lb-mask);backdrop-filter:blur(2px);}
 .lb-card{
@@ -654,7 +656,10 @@ input,textarea{font-family:inherit;font-size:14px;color:inherit;outline:none;}
   max-height:86vh;display:flex;flex-direction:column;overflow:hidden;
   animation:lbIn .18s ease-out;
   /* 宽度变化平滑过渡；拖拽期间由 .lb-resizing 关闭，保证跟手不拖影 */
-  transition:width .16s ease;
+  /* TOC 展开时卡片整体左移让位；用 relative left 而非 transform，
+     以免与拖拽调宽写入的 card.style.transform 互相覆盖 */
+  left:var(--lb-shift,0px);
+  transition:width .16s ease,left .26s ease;
 }
 /* ---------- 放大层边缘拖拽手柄 ---------- */
 /* 手柄只是视觉标识（不拦截点击），真正的手感由「卡片边缘热区」判定，
@@ -739,6 +744,73 @@ body.lb-resizing,body.lb-resizing *{cursor:ew-resize !important;user-select:none
 .btn{padding:6px 16px;border-radius:4px;font-size:13px;}
 .btn.ghost{background:var(--chip-bg);color:var(--chip-text);}
 .btn.solid{background:var(--accent);color:var(--accent-text);}
+
+/* ---------- 放大层 TOC 目录 ----------
+   按钮：卡片内侧右缘的竖向胶囊（圆柱体），中间一枚汉堡图标，
+         作为 TOC 目录的打开/关闭开关；垂直位置由 JS 按正文区矩形写入。
+   面板：从页面右侧滑入，260ms 缓动。 */
+.lb-toc-btn{
+  /* 卡片内的竖向胶囊（圆柱体）：贴在卡片内侧右缘，正文区垂直居中 */
+  position:absolute;z-index:6;
+  right:12px;                 /* 相对卡片内侧留 12px，不压边缘拖拽热区 */
+  top:0;                      /* 由 JS 按正文区矩形写入 */
+  width:26px;height:110px;
+  display:none;align-items:center;justify-content:center;
+  border:1px solid var(--line);
+  border-radius:999px;        /* 胶囊：上下两端半圆 */
+  background:var(--lb-bg);color:var(--text-sub);cursor:pointer;
+  /* 极轻外投影表现圆柱厚度；内高光做出圆润感 */
+  box-shadow:0 1px 6px rgba(0,0,0,.10),inset 0 0 6px rgba(0,0,0,.03);
+  transition:color .15s,background .15s,border-color .15s,width .2s,height .2s;
+}
+.lb-toc-btn.show{display:flex;}
+.lb-toc-btn:hover{color:var(--accent);border-color:var(--accent);}
+.lb-toc-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.lb-toc-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);}
+.lb-toc-btn .ico{width:16px;height:16px;}
+/* 移动端：面板展开后按钮滑入面板头部左侧，收为圆角小块充当关闭开关 */
+.lb-toc-btn--panel{
+  position:relative;right:auto;top:auto;
+  width:26px;height:26px;border-radius:13px;
+  box-shadow:none;flex:none;
+}
+.lb-toc-btn--panel .ico{width:14px;height:14px;}
+.lb-toc{
+  position:absolute;z-index:5;top:0;right:0;height:100%;
+  width:min(320px,86vw);
+  display:flex;flex-direction:column;
+  background:var(--lb-bg);border-left:1px solid var(--line);
+  box-shadow:-10px 0 28px rgba(0,0,0,.18);
+  transform:translateX(100%);
+  visibility:hidden;
+  transition:transform .26s ease,visibility 0s linear .26s;
+}
+.lb-toc.open{transform:none;visibility:visible;transition:transform .26s ease,visibility 0s;}
+.lb-toc-head{
+  /* 移动端会把开关按钮插到最左侧，故改为左对齐排列，关闭键靠 margin-left:auto 顶到右侧 */
+  display:flex;align-items:center;justify-content:flex-start;gap:10px;
+  padding:12px 12px 12px 16px;border-bottom:1px solid var(--line);
+}
+.lb-toc-head #lbTocClose{margin-left:auto;}
+.lb-toc-title{font-size:14px;font-weight:600;color:var(--text);}
+.lb-toc-list{flex:1;overflow:auto;padding:8px 0;}
+.toc-item{
+  display:block;width:100%;text-align:left;
+  padding:7px 14px;border:none;background:none;cursor:pointer;
+  font-family:inherit;font-size:13px;line-height:1.5;color:var(--text);
+  border-left:3px solid transparent;
+  transition:background .15s,color .15s;
+}
+.toc-item:hover{background:var(--chip-hover);}
+.toc-item.active{border-left-color:var(--accent);color:var(--accent);background:var(--chip-bg);}
+.toc-item .toc-lv{display:block;font-size:11px;color:var(--text-dim);margin-bottom:1px;}
+.toc-more{padding:8px 16px 12px;font-size:12px;color:var(--text-dim);}
+/* 跳转落点：章节标题轻微高亮后淡出 */
+@keyframes tocHit{
+  0%{background:var(--warn-soft-bg);color:var(--warn-soft-text);}
+  100%{background:transparent;color:inherit;}
+}
+.lb-body .toc-hit{animation:tocHit 1.25s ease-out;border-radius:3px;}
 
 /* ---------- 右键菜单 ---------- */
 .ctxmenu{
