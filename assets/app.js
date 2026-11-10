@@ -503,10 +503,15 @@
     const fl = favLabel(m.id);
 
     // Markdown 消息若首个标题与 title 相同，气泡内不再重复显示 title
+    // 纯文本消息的 title 取自正文首行，同样会出现「标题 + 正文」重复，需一并去重
     let titleHtml = '';
     if (m.title) {
-      const h = MD.isMdMsg(m) ? MD.firstHeading(m.content) : null;
-      if (h === null || h !== m.title.trim()) {
+      const isMd = MD.isMdMsg(m);
+      const h = isMd ? MD.firstHeading(m.content) : null;
+      const dup = isMd
+        ? (h !== null && h === m.title.trim())
+        : String(m.content || '').split(/\r?\n/)[0].trim() === m.title.trim();
+      if (!dup) {
         titleHtml = '<span class="b-title">' + esc(m.title) + '</span>';
       }
     }
