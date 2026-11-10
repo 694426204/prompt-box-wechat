@@ -96,13 +96,16 @@
 
     <div class="pin-bar" id="pinBar" hidden></div>
 
-    <div class="msg-scroll" id="msgScroll">
-      <div id="msgList"></div>
-      <div class="scroll-empty" id="msgEmpty" hidden>
-        <div class="se-ico">📭</div>
-        <p>这里还没有提示词</p>
-        <small>在下方输入框写下你的第一条提示词</small>
+    <div class="msg-area">
+      <div class="msg-scroll" id="msgScroll">
+        <div id="msgList"></div>
+        <div class="scroll-empty" id="msgEmpty" hidden>
+          <div class="se-ico">📭</div>
+          <p>这里还没有提示词</p>
+          <small>在下方输入框写下你的第一条提示词</small>
+        </div>
       </div>
+      <div class="drop-hint" id="dropHint" hidden>松开鼠标，即可添加图片</div>
     </div>
 
     <div class="composer">
@@ -110,6 +113,8 @@
         <button class="chip" id="btnNewSession" title="新建会话">＋ 新会话</button>
         <button class="chip" id="btnRenameSession" title="重命名当前会话">✎ 重命名</button>
         <button class="chip danger" id="btnDeleteSession" title="删除当前会话">🗑 删除会话</button>
+        <button class="chip" id="btnPickImage" title="发送图片（也支持直接拖拽或粘贴截图）">🖼 图片</button>
+        <input type="file" id="filePickImage" accept="image/jpeg,image/png,image/gif,image/webp" multiple hidden>
         <span class="comp-hint" id="compHint"></span>
       </div>
       <div class="comp-preview" id="compPreview" hidden>
@@ -120,6 +125,7 @@
         </div>
         <div class="cp-body" id="cpBody" hidden></div>
       </div>
+      <div class="comp-strip" id="compStrip" hidden></div>
       <div class="comp-body">
         <textarea id="composerInput" rows="2" placeholder="输入提示词，Enter 发送 · Shift+Enter 换行"></textarea>
         <button class="send-btn" id="btnSend" title="发送">发送</button>
@@ -180,6 +186,14 @@
     </header>
     <nav class="lb-toc-list" id="lbTocList"></nav>
   </aside>
+</div>
+
+<!-- ============ 图片全屏预览层 ============ -->
+<div class="img-viewer" id="imgViewer" hidden>
+  <button class="icon-btn img-viewer-close" id="imgViewerClose" title="关闭">
+    <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <img id="imgViewerImg" alt="图片预览">
 </div>
 
 <!-- ============ 右键菜单 ============ -->

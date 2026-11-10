@@ -72,6 +72,267 @@
 
   const uid = p => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+  /* ---------------- 图片模块 ----------------
+     链路：按钮 / 拖拽 / 粘贴 → magic bytes 格式校验 → Canvas 统一转标准 JPG
+           → 独立的 localStorage 图片仓库 → 消息只存图片元数据
+           → 气泡缩略图 + 放大层大图 + 全屏预览。
+     图片二进制只存在于 IMG_LS_KEY 这一份数据里，主状态永远保持轻量。 */
+  const IMG_LS_KEY    = 'prompt-box-images-v1';   // 图片仓库（独立于主状态键）
+  const IMG_MAX_EDGE  = 1600;                     // JPG 长边上限
+  const IMG_QUALITY   = 0.82;                     // JPEG 质量
+  const IMG_MAX_FILE  = 20 * 1024 * 1024;         // 单文件输入上限 20MB
+  const IMG_MAX_COUNT = 9;                        // 单条消息最多图片数
+  const IMG_TYPES     = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+  let imgStore = loadImgStore();   // { [imgId]: {d,w,h,b,n,t} }
+  let pendingImages = [];          // 待发送区（内存态，未落盘）
+
+  function loadImgStore() {
+    try {
+      const raw = localStorage.getItem(IMG_LS_KEY);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+      return data;
+    } catch (e) {
+      console.warn('读取图片仓库失败，已忽略', e);
+      return {};
+    }
+  }
+
+  // 写入整个仓库；返回 false 表示配额不足（此时调用方负责回滚）
+  function saveImgStore(store) {
+    const s = store || imgStore;
+    try {
+      localStorage.setItem(IMG_LS_KEY, JSON.stringify(s));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function putImage(rec) {
+    const id = uid('i');
+    const next = Object.assign({}, imgStore);
+    next[id] = {
+      d: rec.d, w: rec.w, h: rec.h, b: rec.b,
+      n: rec.n || '图片', t: new Date().toISOString()
+    };
+    if (!saveImgStore(next)) return null;
+    imgStore = next;
+    return id;
+  }
+
+  function dropImage(id) {
+    if (!imgStore[id]) return;
+    const next = Object.assign({}, imgStore);
+    delete next[id];
+    if (saveImgStore(next)) imgStore = next;
+  }
+
+  function dropImagesOf(msgId) {
+    const m = state.messages.find(x => x.id === msgId);
+    if (!m || !m.images) return;
+    m.images.forEach(im => dropImage(im.id));
+  }
+
+  /* 按 magic bytes 判定真实类型：不轻信 file.type，改扩展名的文件同样能识别 */
+  function sniffType(file) {
+    return new Promise(function (resolve) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const b = new Uint8Array(reader.result);
+        if (b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return resolve('image/jpeg');
+        if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47 &&
+            b[4] === 0x0D && b[5] === 0x0A && b[6] === 0x1A && b[7] === 0x0A) return resolve('image/png');
+        if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return resolve('image/gif');
+        if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+            b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return resolve('image/webp');
+        resolve('');
+      };
+      reader.onerror = function () { resolve(''); };
+      reader.readAsArrayBuffer(file.slice(0, 16));
+    });
+  }
+
+  // 解码为可绘制的位图；createImageBitmap 不可用时回退到 <img> + objectURL
+  function decodeImage(file) {
+    if (typeof window.createImageBitmap === 'function') {
+      let p;
+      try {
+        p = window.createImageBitmap(file, { imageOrientation: 'from-image' });
+      } catch (e) {
+        p = Promise.reject(e);
+      }
+      if (p && typeof p.then === 'function') {
+        return p.then(function (bmp) {
+          return {
+            src: bmp, w: bmp.width, h: bmp.height,
+            release: function () { if (bmp.close) bmp.close(); }
+          };
+        }).catch(function () { return decodeViaImg(file); });
+      }
+    }
+    return decodeViaImg(file);
+  }
+
+  function decodeViaImg(file) {
+    return new Promise(function (resolve, reject) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        resolve({
+          src: img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height,
+          release: function () { URL.revokeObjectURL(url); }
+        });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+  }
+
+  /* 统一转标准 JPG：等比缩放到长边 ≤1600，透明区域先铺白底再绘制 */
+  function fileToJpg(file) {
+    return decodeImage(file).then(function (info) {
+      try {
+        const maxEdge = Math.max(info.w, info.h);
+        const scale = maxEdge > IMG_MAX_EDGE ? IMG_MAX_EDGE / maxEdge : 1;
+        const tw = Math.max(1, Math.round(info.w * scale));
+        const th = Math.max(1, Math.round(info.h * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = tw;
+        canvas.height = th;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, tw, th);
+        ctx.drawImage(info.src, 0, 0, tw, th);
+        const dataUrl = canvas.toDataURL('image/jpeg', IMG_QUALITY);
+        return {
+          d: dataUrl, w: tw, h: th,
+          b: Math.round(dataUrl.length * 0.75)   // base64 长度 ≈ 二进制字节数 × 4/3
+        };
+      } finally {
+        info.release();
+      }
+    });
+  }
+
+  /* 三条入口（按钮 / 拖拽 / 粘贴）统一喂进这里 */
+  function addPendingFiles(fileList) {
+    const files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    const remain = IMG_MAX_COUNT - pendingImages.length;
+    if (remain <= 0) {
+      toast('单条消息最多 ' + IMG_MAX_COUNT + ' 张图片');
+      return;
+    }
+    const accepted = files.slice(0, remain);
+    if (files.length > remain) toast('单条消息最多 ' + IMG_MAX_COUNT + ' 张图片，超出部分已忽略');
+
+    let i = 0;
+    function step() {
+      if (i >= accepted.length) { renderStrip(); return; }
+      const file = accepted[i++];
+      if (file.size > IMG_MAX_FILE) {
+        toast('「' + (file.name || '图片') + '」超过 20MB，已跳过');
+        step();
+        return;
+      }
+      sniffType(file).then(function (type) {
+        if (IMG_TYPES.indexOf(type) < 0) {
+          toast('仅支持 JPG / PNG / GIF / WebP，「' + (file.name || '未命名') + '」已跳过');
+          return null;
+        }
+        return fileToJpg(file).then(function (rec) {
+          rec.n = file.name || '图片';
+          pendingImages.push(rec);
+          renderStrip();
+        }).catch(function () {
+          toast('「' + (file.name || '图片') + '」无法解析，已跳过');
+        });
+      }).then(step, step);
+    }
+    step();
+  }
+
+  function renderStrip() {
+    const strip = $('#compStrip');
+    if (!strip) return;
+    strip.innerHTML = '';
+    if (!pendingImages.length) { strip.hidden = true; return; }
+    strip.hidden = false;
+    pendingImages.forEach(function (p, idx) {
+      const item = document.createElement('div');
+      item.className = 'cs-item';
+      const img = document.createElement('img');
+      img.src = p.d;
+      img.alt = p.n || '图片';
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'cs-del';
+      del.title = '移除';
+      del.setAttribute('aria-label', '移除图片');
+      del.textContent = '✕';
+      del.addEventListener('click', function () {
+        pendingImages.splice(idx, 1);
+        renderStrip();
+      });
+      item.appendChild(img);
+      item.appendChild(del);
+      strip.appendChild(item);
+    });
+  }
+
+  /* 气泡内的图片网格：DOM 节点方式创建，不把 base64 拼进 innerHTML */
+  function buildImgGrid(images) {
+    const wrap = document.createElement('div');
+    wrap.className = 'b-imgs';
+    (images || []).forEach(function (im) {
+      const rec = imgStore[im.id];
+      if (!rec || !rec.d) return;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'b-img';
+      cell.title = (im.n || '图片') + '（点击查看大图）';
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = im.n || '图片';
+      img.src = rec.d;
+      cell.appendChild(img);
+      cell.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openImgViewer(rec.d, im.n);
+      });
+      wrap.appendChild(cell);
+    });
+    return wrap;
+  }
+
+  function openImgViewer(src, name) {
+    const v = $('#imgViewer');
+    const im = $('#imgViewerImg');
+    if (!v || !im) return;
+    im.src = src;
+    im.alt = name || '图片预览';
+    v.hidden = false;
+    document.body.classList.add('img-viewing');
+  }
+
+  function closeImgViewer() {
+    const v = $('#imgViewer');
+    if (!v) return;
+    v.hidden = true;
+    const im = $('#imgViewerImg');
+    if (im) im.removeAttribute('src');
+    document.body.classList.remove('img-viewing');
+  }
+
+  function showDropHint(on) {
+    const el = $('#dropHint');
+    if (el) el.hidden = !on;
+  }
+
+
   /* ---------------- 收藏过期处理 ---------------- */
   function favActive(msgId) {
     const f = state.favs[msgId];
@@ -270,6 +531,11 @@
       '</div>';
 
     const bubble = $('.bubble', row);
+    // 图片网格追加在气泡正文之后（原有 innerHTML 拼装逻辑保持不变）
+    if (m.images && m.images.length) {
+      const grid = buildImgGrid(m.images);
+      if (grid.childNodes.length) bubble.appendChild(grid);
+    }
     bubble.addEventListener('click', () => handleBubbleClick(m.id));
     bubble.addEventListener('dblclick', () => {
       if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
@@ -315,6 +581,7 @@
   }
 
   function deleteMessage(id) {
+    dropImagesOf(id);   // 同步回收该消息占用的图片配额
     state.messages = state.messages.filter(m => m.id !== id);
     state.pins = state.pins.filter(x => x !== id);
     delete state.favs[id];
@@ -364,6 +631,24 @@
     } else {
       lbBody.classList.remove('md');
       lbBody.textContent = m.content;
+    }
+    // 大图区：追加在正文之后
+    const oldImgs = $('.lb-imgs', lbBody);
+    if (oldImgs) oldImgs.remove();
+    if (m.images && m.images.length) {
+      const box = document.createElement('div');
+      box.className = 'lb-imgs';
+      m.images.forEach(function (im) {
+        const rec = imgStore[im.id];
+        if (!rec || !rec.d) return;
+        const img = document.createElement('img');
+        img.alt = im.n || '图片';
+        img.src = rec.d;
+        img.title = '点击查看大图';
+        img.addEventListener('click', function () { openImgViewer(rec.d, im.n); });
+        box.appendChild(img);
+      });
+      if (box.childNodes.length) lbBody.appendChild(box);
     }
     buildToc();
 
@@ -786,28 +1071,55 @@
   function send() {
     const ta = $('#composerInput');
     const raw = ta.value;
-    if (!raw.trim()) return;
+    const hasText = !!raw.trim();
+    const hasImg = pendingImages.length > 0;
+    if (!hasText && !hasImg) return;
     let sid = state.currentSessionId;
     if (!sid || currentView !== 'chat') {
       const s = state.sessions[0];
       sid = s ? s.id : null;
     }
     if (!sid) { toast('请先新建一个会话'); return; }
-    const fmt = MD.detect(raw);
+
+    // 图片先落盘再挂消息：任一张写不下就整条放弃，避免出现「有图无实体」的坏数据
+    const stored = [];
+    for (let i = 0; i < pendingImages.length; i++) {
+      const p = pendingImages[i];
+      const id = putImage({ d: p.d, w: p.w, h: p.h, b: p.b, n: p.n });
+      if (!id) {
+        stored.forEach(s => dropImage(s.id));
+        toast('本地存储空间已满，请先删除部分带图消息');
+        return;
+      }
+      stored.push({ id: id, w: p.w, h: p.h, n: p.n });
+    }
+
+    const fmt = hasText ? MD.detect(raw) : 'txt';
     const lines = raw.split('\n');
     const head = fmt === 'md' ? MD.strip(lines[0]).trim() : lines[0];
-    state.messages.push({
+    let title;
+    if (hasText) {
+      title = head.length > 40 ? head.slice(0, 40) + '…' : head;
+    } else {
+      title = stored.length === 1 ? (stored[0].n || '图片') : ('图片 ×' + stored.length);
+    }
+    const msg = {
       id: uid('m'),
       sessionId: sid,
       side: 'me',
-      title: head.length > 40 ? head.slice(0, 40) + '…' : head,
+      title: title,
       content: raw,
       fmt: fmt,
       createdAt: new Date().toISOString()
-    });
+    };
+    if (stored.length) msg.images = stored;
+    state.messages.push(msg);
+
     ta.value = '';
     ta.style.height = 'auto';
     resetPreview();
+    pendingImages = [];
+    renderStrip();
     save(); currentView = 'chat'; render();
     scrollBottom();
     toast('已保存到「' + (state.sessions.find(s => s.id === sid) || {}).name + '」');
@@ -816,6 +1128,79 @@
   $('#composerInput').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
+
+  /* ---------------- 图片入口：按钮 / 拖拽 / 粘贴 ---------------- */
+  $('#btnPickImage').addEventListener('click', () => $('#filePickImage').click());
+  $('#filePickImage').addEventListener('change', e => {
+    const files = e.target.files;
+    if (files && files.length) addPendingFiles(files);
+    e.target.value = '';   // 允许再次选择同一个文件
+  });
+
+  // 拖拽：dragover 必须 preventDefault，否则 drop 不触发、浏览器会直接打开文件
+  (function () {
+    const scroll = $('#msgScroll');
+    if (!scroll) return;
+    let depth = 0;
+    scroll.addEventListener('dragenter', e => {
+      if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+      e.preventDefault();
+      depth++;
+      showDropHint(true);
+    });
+    scroll.addEventListener('dragover', e => {
+      if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      showDropHint(true);
+    });
+    scroll.addEventListener('dragleave', e => {
+      e.preventDefault();
+      depth = Math.max(0, depth - 1);
+      if (!depth) showDropHint(false);
+    });
+    scroll.addEventListener('drop', e => {
+      e.preventDefault();
+      depth = 0;
+      showDropHint(false);
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      const files = [];
+      for (let i = 0; i < dt.files.length; i++) {
+        const f = dt.files[i];
+        if (f && f.type && f.type.indexOf('image/') === 0) files.push(f);
+      }
+      if (files.length) addPendingFiles(files);
+      else toast('拖入的文件不是图片，仅支持 JPG / PNG / GIF / WebP');
+    });
+  })();
+
+  // 粘贴：剪贴板里有图片项时收集图片；仅当没有可粘贴文本时才拦截默认行为
+  $('#composerInput').addEventListener('paste', e => {
+    const dt = e.clipboardData;
+    if (!dt || !dt.items || !dt.items.length) return;
+    const files = [];
+    for (let i = 0; i < dt.items.length; i++) {
+      const it = dt.items[i];
+      if (it && it.kind === 'file' && it.type && it.type.indexOf('image/') === 0) {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (!files.length) return;
+    let hasText = false;
+    try { hasText = !!(dt.getData('text/plain')); } catch (err) { hasText = false; }
+    if (!hasText) e.preventDefault();
+    addPendingFiles(files);
+  });
+
+  // 全屏预览层：点击图片、点关闭键、Esc 三种方式均可关闭
+  $('#imgViewerClose').addEventListener('click', closeImgViewer);
+  $('#imgViewerImg').addEventListener('click', closeImgViewer);
+  $('#imgViewer').addEventListener('click', e => {
+    if (e.target === $('#imgViewer')) closeImgViewer();
+  });
+
   $('#composerInput').addEventListener('input', e => {
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px';
@@ -915,6 +1300,10 @@
     if (!s) { toast('请先选择一个会话'); return; }
     if (!confirm('删除会话「' + s.name + '」及其中的 ' +
       state.messages.filter(m => m.sessionId === s.id).length + ' 条消息？')) return;
+    // 删除会话时一并回收其中消息占用的图片配额，避免仓库里留下孤儿数据
+    state.messages.filter(m => m.sessionId === s.id).forEach(m => {
+      if (m.images) m.images.forEach(im => dropImage(im.id));
+    });
     state.messages = state.messages.filter(m => m.sessionId !== s.id);
     state.sessions = state.sessions.filter(x => x.id !== s.id);
     state.currentSessionId = state.sessions.length ? state.sessions[0].id : null;
@@ -942,6 +1331,10 @@
         else if (m === 'reset') {
           if (!confirm('清空当前全部数据并恢复初始的 6 条示例提示词？')) return;
           localStorage.removeItem(LS_KEY);
+          localStorage.removeItem(IMG_LS_KEY);
+          imgStore = {};
+          pendingImages = [];
+          renderStrip();
           state = blankState();
           save(); render();
           toast('已恢复初始数据');
@@ -951,6 +1344,11 @@
   });
 
   function doExport() {
+    const hasImages = Object.keys(imgStore).length > 0;
+    // 有图片时才询问；点「确定」含图，点「取消」只导出文字（仓库数据本身不受影响）
+    const withImages = hasImages
+      ? confirm('是否在备份中包含图片数据？\n\n点「确定」包含图片（文件会明显变大），点「取消」只导出文字。')
+      : false;
     const payload = {
       app: 'prompt-box-wechat',
       version: 1,
@@ -960,13 +1358,14 @@
       pins: state.pins,
       favs: state.favs
     };
+    if (withImages) payload.images = imgStore;
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = '提示词备份-' + new Date().toISOString().slice(0, 10) + '.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('已导出备份文件');
+    toast(withImages ? '已导出备份文件（含图片）' : '已导出备份文件（不含图片）');
   }
 
   $('#btnExport').addEventListener('click', doExport);
@@ -980,11 +1379,28 @@
         const data = JSON.parse(reader.result);
         if (!data.messages || !data.sessions) throw new Error('格式不正确');
         const mode = confirm('导入将覆盖当前全部数据，确定继续？\n\n点「取消」则与现有数据合并。');
+        const srcImages = (data.images && typeof data.images === 'object' && !Array.isArray(data.images)) ? data.images : null;
+        let imgNote = '';
         if (mode) {
           state.sessions = data.sessions;
           state.messages = data.messages;
           state.pins = data.pins || [];
           state.favs = data.favs || {};
+          // 覆盖模式：图片仓库整体替换（备份里没有图片数据则清空）
+          imgStore = {};
+          if (srcImages) {
+            const next = {};
+            Object.keys(srcImages).forEach(k => {
+              const rec = srcImages[k];
+              if (rec && typeof rec.d === 'string' && rec.d) next[k] = rec;
+            });
+            if (saveImgStore(next)) {
+              imgStore = next;
+              imgNote = '，导入图片 ' + Object.keys(next).length + ' 张';
+            } else {
+              imgNote = '，图片因存储空间不足未能导入';
+            }
+          }
         } else {
           const sidMap = {};
           data.sessions.forEach(s => {
@@ -992,16 +1408,38 @@
             sidMap[s.id] = nid;
             state.sessions.push({ id: nid, name: s.name, icon: s.icon || '💬' });
           });
+          // 合并模式：图片并入仓库，id 冲突则改写为新 id，并同步改写引用它的消息
+          const idMap = {};
+          if (srcImages) {
+            const next = Object.assign({}, imgStore);
+            Object.keys(srcImages).forEach(k => {
+              const rec = srcImages[k];
+              if (!rec || typeof rec.d !== 'string' || !rec.d) return;
+              let nid = k;
+              if (next[nid]) { nid = uid('i'); idMap[k] = nid; }
+              next[nid] = rec;
+            });
+            if (saveImgStore(next)) {
+              imgStore = next;
+              imgNote = '，导入图片 ' + Object.keys(srcImages).length + ' 张';
+            } else {
+              imgNote = '，图片因存储空间不足未能导入';
+            }
+          }
           data.messages.forEach(m => {
-            state.messages.push(Object.assign({}, m, {
+            const copy = Object.assign({}, m, {
               id: uid('m'),
               sessionId: sidMap[m.sessionId] || state.currentSessionId
-            }));
+            });
+            if (Array.isArray(copy.images)) {
+              copy.images = copy.images.map(im => idMap[im.id] ? Object.assign({}, im, { id: idMap[im.id] }) : im);
+            }
+            state.messages.push(copy);
           });
         }
         state.currentSessionId = state.sessions.length ? state.sessions[0].id : null;
         save(); render();
-        toast('导入完成');
+        toast('导入完成' + imgNote);
       } catch (err) {
         toast('导入失败：文件格式不正确');
       }
@@ -1028,8 +1466,10 @@
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      // 目录面板开着时，Esc 先收面板，再考虑关放大层
-      if ($('#lbToc').classList.contains('open')) closeToc();
+      // 全屏预览层开着时，Esc 先关预览
+      if (!$('#imgViewer').hidden) closeImgViewer();
+      // 目录面板开着时，Esc 再收面板，最后才关放大层
+      else if ($('#lbToc').classList.contains('open')) closeToc();
       else if (!$('#lightbox').hidden) closeLightbox();
       $('#ctxmenu').hidden = true;
     }
