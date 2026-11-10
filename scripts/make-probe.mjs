@@ -21,6 +21,7 @@ const seedScript = `<script>
     '长字段 | docker-compose-up-d-build-with-cache-and-log-follow | 启动全部服务并复用构建缓存 | 仅用于本地开发环境快速拉起整个依赖栈，生产环境请勿直接使用该命令'
   ].join('\\n');
   try { localStorage.removeItem('prompt-box-theme-v1'); } catch (e) {}
+  try { localStorage.removeItem('prompt-box-images-v1'); } catch (e) {}
   /* 探针标题文档：20 个标题（h1/h2/h3/h4 混合），超出目录上限 12 个，
      用于验证「均匀采样」是否覆盖全文首尾与下半篇；正文足够长以便滚动 */
   var doc = [
@@ -502,6 +503,151 @@ const probeScript = `<script>
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await sleep(150);
     ok('T22 再次 Esc 关闭灯箱', lbEl.hidden);
+
+    /* ================= 图片链路 ================= */
+    await runImageTests();
+  }
+
+  /* 图片链路断言：Canvas 现场生成 PNG → 走完整链路（校验 / 转 JPG / 待发送区 / 发送 / 渲染 / 回收） */
+  async function runImageTests() {
+    function makePngFile(w, h, name) {
+      return new Promise(function (res) {
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        var ctx = cv.getContext('2d');
+        ctx.fillStyle = '#3399aa'; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#cc5533'; ctx.fillRect(0, 0, w / 4, h / 4);
+        ctx.fillStyle = '#ffffff'; ctx.font = Math.max(16, Math.round(w / 20)) + 'px sans-serif';
+        ctx.fillText('PROBE', w / 6, h / 2);
+        cv.toBlob(function (blob) {
+          res(new File([blob], name, { type: 'image/png' }));
+        }, 'image/png');
+      });
+    }
+    function pasteFiles(files) {
+      var dt = new DataTransfer();
+      for (var i = 0; i < files.length; i++) dt.items.add(files[i]);
+      var ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      document.getElementById('composerInput').dispatchEvent(ev);
+    }
+    function imgStore() {
+      try { return JSON.parse(localStorage.getItem('prompt-box-images-v1') || '{}'); }
+      catch (e) { return {}; }
+    }
+    function mainState() {
+      try { return JSON.parse(localStorage.getItem('prompt-box-wechat-v1') || '{}'); }
+      catch (e) { return {}; }
+    }
+    function naturalSize(dataUrl) {
+      return new Promise(function (res) {
+        var im = new Image();
+        im.onload = function () { res({ w: im.naturalWidth, h: im.naturalHeight }); };
+        im.onerror = function () { res(null); };
+        im.src = dataUrl;
+      });
+    }
+
+    var strip = document.getElementById('compStrip');
+    var ta = document.getElementById('composerInput');
+    var sendBtn = document.getElementById('btnSend');
+    ok('P0 待发送条与预览层已就位',
+       !!strip && !!document.getElementById('imgViewer') && !!document.getElementById('btnPickImage'));
+
+    // P3 非白名单格式被拒绝（按 magic bytes 判定：伪装成 PNG 的文本文件同样被拒）
+    pasteFiles([new File(['not an image'], 'fake.png', { type: 'image/png' })]);
+    await sleep(350);
+    ok('P3 非白名单格式被拒绝且不入队',
+       strip.hidden || strip.querySelectorAll('.cs-item').length === 0,
+       'n=' + strip.querySelectorAll('.cs-item').length);
+
+    // P1 / P2 / P4：PNG → 标准 JPG，长边缩放到 ≤1600，比例保持
+    var bigPng = await makePngFile(2000, 1200, '探针大图.png');
+    pasteFiles([bigPng]);
+    await sleep(900);
+    var stripItems = strip.querySelectorAll('.cs-item');
+    ok('P4 待发送条渲染出缩略图', stripItems.length === 1, 'n=' + stripItems.length);
+    var src = stripItems.length ? stripItems[0].querySelector('img').getAttribute('src') : '';
+    ok('P1 PNG 已统一转换为标准 JPG',
+       src.indexOf('data:image/jpeg;base64,') === 0, 'src=' + src.slice(0, 40));
+    var nat = src ? await naturalSize(src) : null;
+    ok('P2 长边缩放到 ≤1600 且比例保持',
+       !!nat && Math.max(nat.w, nat.h) <= 1600 &&
+       Math.abs((nat.w / nat.h) - (2000 / 1200)) < 0.02, JSON.stringify(nat));
+
+    // P4b 移除按钮可清空待发送区
+    var delBtn = strip.querySelector('.cs-del');
+    ok('P4b 待发送缩略图带移除按钮', !!delBtn);
+    if (delBtn) {
+      delBtn.click();
+      await sleep(200);
+      ok('P4c 移除后待发送区清空',
+         strip.hidden || strip.querySelectorAll('.cs-item').length === 0,
+         'n=' + strip.querySelectorAll('.cs-item').length);
+    }
+
+    // P5：有图 + 有文字 → 同一条消息
+    pasteFiles([await makePngFile(600, 400, '带文字.png')]);
+    await sleep(700);
+    ta.value = '带图片的提示词';
+    sendBtn.click();
+    await sleep(400);
+    var bubbles = Array.prototype.slice.call(document.querySelectorAll('.msg-row.mine .bubble'));
+    var imgBubbles = bubbles.filter(function (b) { return b.querySelector('.b-imgs img'); });
+    ok('P5 发送后气泡内出现图片', imgBubbles.length > 0, 'n=' + imgBubbles.length);
+    var bsrc = imgBubbles.length ? imgBubbles[0].querySelector('.b-imgs img').getAttribute('src') : '';
+    ok('P5b 气泡图片为 JPG dataURL', bsrc.indexOf('data:image/jpeg;base64,') === 0, bsrc.slice(0, 40));
+
+    // P6：图片独立成条（无文字）
+    pasteFiles([await makePngFile(320, 240, '纯图片.png')]);
+    await sleep(700);
+    ta.value = '';
+    sendBtn.click();
+    await sleep(400);
+    var st = mainState();
+    var imgMsgs = (st.messages || []).filter(function (m) { return m.images && m.images.length; });
+    ok('P6 图片可独立成条', imgMsgs.length >= 2, 'n=' + imgMsgs.length);
+    var pure = imgMsgs.filter(function (m) { return !m.content || !m.content.trim(); })[0];
+    ok('P6b 纯图片消息正文为空但仍带图', !!pure && pure.images.length > 0, 'pure=' + !!pure);
+
+    // P7：图片二进制不写进主状态
+    ok('P7 主状态 JSON 不含图片 base64',
+       (localStorage.getItem('prompt-box-wechat-v1') || '').indexOf('base64') < 0);
+    ok('P7b 图片仓库独立成键且非空', Object.keys(imgStore()).length >= 2,
+       'n=' + Object.keys(imgStore()).length);
+
+    // P9：放大层渲染大图
+    var imgBubble = imgBubbles[0];
+    if (imgBubble) {
+      imgBubble.click();
+      await sleep(450);
+      var lbImgs = document.querySelectorAll('#lbBody .lb-imgs img');
+      ok('P9 放大层渲染出大图', lbImgs.length > 0, 'n=' + lbImgs.length);
+      document.getElementById('lbClose').click();
+      await sleep(200);
+    }
+
+    // P8：删除消息后图片仓库对应条目被回收
+    var storeBefore = Object.keys(imgStore()).length;
+    var target = imgBubble || document.querySelector('.msg-row.mine .bubble[data-id]');
+    if (target) {
+      var bid = target.getAttribute('data-id');
+      var rc = target.getBoundingClientRect();
+      target.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: rc.left + 20, clientY: rc.top + 20
+      }));
+      await sleep(250);
+      var delMenu = document.querySelector('#ctxmenu button[data-act="del"]');
+      ok('P8a 右键菜单有删除项', !!delMenu);
+      if (delMenu) {
+        delMenu.click();
+        await sleep(400);
+        var after = mainState();
+        var stillMsg = (after.messages || []).filter(function (m) { return m.id === bid; })[0];
+        ok('P8 删除消息成功', !stillMsg, 'still=' + !!stillMsg);
+        ok('P8b 图片仓库条目被回收', Object.keys(imgStore()).length < storeBefore,
+           'before=' + storeBefore + ' after=' + Object.keys(imgStore()).length);
+      }
+    }
   }
 })();
 </script>
@@ -619,6 +765,51 @@ const mobileScript = `<script>
     document.getElementById('lbClose').click();
     await sleep(150);
     ok('M13 关闭按钮关闭灯箱', lbEl.hidden);
+
+    /* ================= 窄屏下的图片渲染 ================= */
+    await runMobileImage();
+  }
+
+  async function runMobileImage() {
+    function makePngFile(w, h, name) {
+      return new Promise(function (res) {
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        var ctx = cv.getContext('2d');
+        ctx.fillStyle = '#8866cc'; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#ffee88'; ctx.fillRect(w / 4, h / 4, w / 2, h / 2);
+        cv.toBlob(function (blob) { res(new File([blob], name, { type: 'image/png' })); }, 'image/png');
+      });
+    }
+    function pasteFiles(files) {
+      var dt = new DataTransfer();
+      for (var i = 0; i < files.length; i++) dt.items.add(files[i]);
+      document.getElementById('composerInput').dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }
+
+    var strip = document.getElementById('compStrip');
+    var ta = document.getElementById('composerInput');
+    pasteFiles([await makePngFile(1200, 900, '窄屏图.png')]);
+    await sleep(900);
+    ok('M14 窄屏下待发送条渲染缩略图',
+       strip.querySelectorAll('.cs-item').length === 1,
+       'n=' + strip.querySelectorAll('.cs-item').length);
+
+    ta.value = '窄屏图片消息';
+    document.getElementById('btnSend').click();
+    await sleep(400);
+    var bub = document.querySelector('.msg-row.mine .bubble .b-imgs');
+    ok('M15 窄屏下气泡内出现图片', !!bub);
+    if (bub) {
+      var img = bub.querySelector('img');
+      var bw = bub.closest('.bubble').clientWidth;
+      ok('M16 图片不撑破气泡', img.offsetWidth <= bw + 1,
+         'img=' + img.offsetWidth + ' bubble=' + bw);
+      ok('M17 窄屏下页面无横向溢出',
+         document.documentElement.scrollWidth <= window.innerWidth + 1,
+         'sw=' + document.documentElement.scrollWidth + ' vw=' + window.innerWidth);
+    }
   }
 })();
 </script>

@@ -259,6 +259,113 @@ ${OPEN_DOC_HELPER}
 </script>
 `;
 
+/* 场景9：消息气泡内的图片网格（待发送条 + 已发送气泡）
+   图片由 canvas 现场生成 → 走真实上传链路（格式校验 + 转 JPG + 入库） */
+const shot9 = `<script>
+(function(){
+  function makePng(w, h){
+    return new Promise(function(res){
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      var c = cv.getContext('2d');
+      var g = c.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, '#4a6cf7'); g.addColorStop(0.5, '#7b5cf0'); g.addColorStop(1, '#e05fc0');
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(255,255,255,.22)';
+      for (var i = 0; i < 14; i++) {
+        c.beginPath();
+        c.arc((i * 137) % w, (i * 89) % h, 18 + (i % 5) * 12, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.fillStyle = '#fff';
+      c.font = 'bold 44px "Microsoft YaHei", sans-serif';
+      c.textAlign = 'center';
+      c.fillText('上传图片示例', w / 2, h / 2 - 8);
+      c.font = '26px "Microsoft YaHei", sans-serif';
+      c.fillStyle = 'rgba(255,255,255,.88)';
+      c.fillText('自动转换为标准 JPG', w / 2, h / 2 + 44);
+      cv.toBlob(function(b){ res(new File([b], '示例图.png', { type: 'image/png' })); }, 'image/png');
+    });
+  }
+  function paste(files){
+    var dt = new DataTransfer();
+    for (var i=0;i<files.length;i++) dt.items.add(files[i]);
+    document.getElementById('composerInput').dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      Promise.all([makePng(900, 620), makePng(620, 620)]).then(function(files){
+        paste(files);
+        setTimeout(function(){
+          var ta = document.getElementById('composerInput');
+          ta.value = '这是带图片的消息，图片已统一转换为标准 JPG 格式。';
+          document.getElementById('btnSend').click();
+          setTimeout(function(){
+            var list = document.getElementById('msgList');
+            if (list) list.scrollTop = list.scrollHeight;
+            setTimeout(function(){ document.title = 'SHOT9_READY'; }, 500);
+          }, 700);
+        }, 900);
+      });
+    }, 500);
+  });
+})();
+</script>
+`;
+
+/* 场景10：点击气泡内图片 → 全屏预览层 */
+const shot10 = `<script>
+(function(){
+  function makePng(w, h){
+    return new Promise(function(res){
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      var c = cv.getContext('2d');
+      var g = c.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, '#0f8f6f'); g.addColorStop(0.5, '#2fb0a8'); g.addColorStop(1, '#7fd6b0');
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(255,255,255,.25)';
+      for (var i = 0; i < 10; i++) {
+        c.beginPath();
+        c.moveTo((i * 121) % w, 0);
+        c.lineTo((i * 121) % w + 160, h);
+        c.lineTo((i * 121) % w + 80, h);
+        c.closePath(); c.fill();
+      }
+      c.fillStyle = '#fff';
+      c.font = 'bold 46px "Microsoft YaHei", sans-serif';
+      c.textAlign = 'center';
+      c.fillText('全屏预览', w / 2, h / 2);
+      cv.toBlob(function(b){ res(new File([b], '预览图.png', { type: 'image/png' })); }, 'image/png');
+    });
+  }
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      makePng(1000, 700).then(function(f){
+        var dt = new DataTransfer();
+        dt.items.add(f);
+        document.getElementById('composerInput').dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        setTimeout(function(){
+          document.getElementById('btnSend').click();
+          setTimeout(function(){
+            var list = document.getElementById('msgList');
+            if (list) list.scrollTop = list.scrollHeight;
+            setTimeout(function(){
+              var img = document.querySelector('.msg-row.mine .b-imgs img');
+              if (img) img.click();
+              setTimeout(function(){ document.title = 'SHOT10_READY'; }, 600);
+            }, 600);
+          }, 700);
+        }, 900);
+      });
+    }, 500);
+  });
+})();
+</script>
+`;
+
 function build(file, extra) {
   let out = html.replace('<script src="data/seed-prompts.js"></script>',
     '<script src="data/seed-prompts.js"></script>\n' + seed);
@@ -274,3 +381,5 @@ build('__shot4.html', shot4);
 build('__shot5.html', shot5);
 build('__shot7.html', shot7);
 build('__shot8.html', shot8);
+build('__shot9.html', shot9);
+build('__shot10.html', shot10);
